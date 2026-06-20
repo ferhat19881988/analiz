@@ -631,30 +631,35 @@
 
     function renderTasks(){
       const list = relevantAssignments();
-      const allDays = [...new Set(list.flatMap(a=>Object.keys(normalizeAssignmentDays(a))))].sort();
       const today = dateKey(new Date());
+      const allDays = [...new Set(list.flatMap(a=>Object.keys(normalizeAssignmentDays(a)).map(normalizeTaskDateKey).filter(d=>d && d >= today)))].sort();
       if(!state.selectedTaskDay) state.selectedTaskDay = allDays.includes(today) ? today : 'all';
       if(state.selectedTaskDay !== 'all' && !allDays.includes(state.selectedTaskDay)) state.selectedTaskDay = allDays.includes(today) ? today : 'all';
       const filter = allDays.length ? `<div class="day-filter-strip"><button class="day-filter-btn ${state.selectedTaskDay==='all'?'active':''}" onclick="setTaskDay('all')">Tümü</button>${allDays.map(d=>`<button class="day-filter-btn ${state.selectedTaskDay===d?'active':''}" onclick="setTaskDay('${d}')">${formatDateTR(parseDateKey(d))}</button>`).join('')}</div>` : '';
       const head = `
         <div class="section-head">
-          <div><h3>Haftalık Görevlendirmeler</h3><p>Gün seçerek sadece o günkü görevlerini görebilirsin.</p></div>
+          <div><h3>Haftalık Görevlendirmeler</h3><p>Normal ekranda yalnızca bugün ve ileri tarihli görevler görünür. Gün filtresi de bugün ve sonrası için çalışır.</p></div>
         </div>${filter}`;
-      if(!list.length) return head + `<div class="empty">Şu anda tanımlı haftalık görev görünmüyor.</div>`;
-      return head + list.map(a=>assignmentHtml(a,state.selectedTaskDay)).join('');
+      const currentHtml = list.map(a=>assignmentHtml(a,state.selectedTaskDay, day=>normalizeTaskDateKey(day) >= today)).join('');
+      const currentBlock = currentHtml || `<div class="empty">Bugün veya ileri tarihli tanımlı görev görünmüyor.</div>`;
+      return head + currentBlock + oldAssignmentsHtml(list);
     }
 
     function setTaskDay(day){ state.selectedTaskDay = day; renderTab(); }
 
-    function assignmentHtml(a, selectedDay='all'){
+    function assignmentHtml(a, selectedDay='all', dayFilter=()=>true){
       const start = a.startDate || a.baslangicTarihi || '';
       const end = a.endDate || a.bitisTarihi || '';
       const days = normalizeAssignmentDays(a);
-      const keys = Object.keys(days).sort().filter(day=>selectedDay==='all' || selectedDay===day);
+      const keys = Object.keys(days).sort((x,y)=>normalizeTaskDateKey(x).localeCompare(normalizeTaskDateKey(y))).filter(day=>{
+        const normalizedDay = normalizeTaskDateKey(day);
+        return dayFilter(day) && (selectedDay==='all' || selectedDay===normalizedDay);
+      });
       const dayHtml = keys.map(day=>{
+        const normalizedDay = normalizeTaskDateKey(day);
         const items = days[day];
-        const lines = items.map(item=>taskItemHtml(day,item)).join('');
-        return `<div class="task-card"><div class="task-top"><div><p class="task-title">${formatDateTR(parseDateKey(day))}</p><p class="task-sub">${escapeHtml(dayNameTR(day))}</p></div></div>${lines}</div>`;
+        const lines = items.map(item=>taskItemHtml(normalizedDay,item)).join('');
+        return `<div class="task-card"><div class="task-top"><div><p class="task-title">${formatDateTR(parseDateKey(normalizedDay))}</p><p class="task-sub">${escapeHtml(dayNameTR(normalizedDay))}</p></div></div>${lines}</div>`;
       }).join('');
       if(!dayHtml) return '';
       return `
@@ -670,21 +675,63 @@
         </article>`;
     }
 
+    function oldAssignmentsHtml(list){
+      const today = dateKey(new Date());
+      const oldDays = [];
+      list.forEach(a=>{
+        const days = normalizeAssignmentDays(a);
+        Object.entries(days).forEach(([day,items])=>{
+          const normalizedDay = normalizeTaskDateKey(day);
+          if(normalizedDay && normalizedDay < today){
+            oldDays.push({assignment:a, day:normalizedDay, items:normalizeDayItems(items)});
+          }
+        });
+      });
+      oldDays.sort((a,b)=>b.day.localeCompare(a.day) || safe(a.assignment.title || a.assignment.baslik).localeCompare(safe(b.assignment.title || b.assignment.baslik),'tr'));
+      if(!oldDays.length) return '';
+      return `
+        <div style="height:14px"></div>
+        <div class="section-head">
+          <div><h3>Eski Görevlendirmeler</h3><p>Günü geçen görevlendirmeler burada en yeni tarihten eski tarihe doğru listelenir.</p></div>
+        </div>
+        ${oldDays.map(entry=>{
+          const a = entry.assignment;
+          const lines = entry.items.map(item=>taskItemHtml(entry.day,item)).join('');
+          return `<article class="task-card">
+            <div class="task-top">
+              <div>
+                <p class="task-title">${formatDateTR(parseDateKey(entry.day))} • ${escapeHtml(a.title || a.baslik || 'Çalışma Programı')}</p>
+                <p class="task-sub">${escapeHtml(dayNameTR(entry.day))} • ${escapeHtml(targetLabel(a))}</p>
+              </div>
+              <span class="pill orange">Eski Görev</span>
+            </div>
+            ${lines || '<div class="empty">Bu eski görevde içerik bulunmuyor.</div>'}
+          </article>`;
+        }).join('')}`;
+    }
+
     function taskItemHtml(day,item){
+      const taskDay = normalizeTaskDateKey(day);
+      const today = dateKey(new Date());
       const ders = item.ders || item.course || '';
       const hedef = Number(item.soruSayisi || item.soru || item.hedefSoru || item.total || 0);
-      const done = state.records.filter(r=>r.dateKey === day && safe(r.ders) === safe(ders)).reduce((a,r)=>a+Number(r.toplamSoru||0),0);
+      const done = state.records.filter(r=>normalizeTaskDateKey(r.dateKey) === taskDay && safe(r.ders) === safe(ders)).reduce((a,r)=>a+Number(r.toplamSoru||0),0);
+      const remaining = Math.max(hedef - done, 0);
       const pct = hedef ? Math.min(100, Math.round(done/hedef*100)) : 0;
       const ok = hedef && done >= hedef;
+      const isPast = taskDay < today;
+      const statusClass = ok ? 'done' : (isPast ? 'missing' : 'pending');
+      const statusText = ok ? 'Yapıldı' : (isPast ? `Eksik: ${remaining} soru` : 'Devam');
+      const remainingText = hedef && !ok ? ` • Kalan: ${remaining} soru` : '';
       return `
         <div class="task-line">
           <div>
             <strong>${escapeHtml(ders || 'Ders')}</strong>
-            <div class="mini">Hedef: ${hedef} soru • Girilen: ${done} soru ${item.anaKonu ? '• ' + escapeHtml(item.anaKonu) : ''}</div>
+            <div class="mini">Hedef: ${hedef} soru • Girilen: ${done} soru${remainingText} ${item.anaKonu ? '• ' + escapeHtml(item.anaKonu) : ''}</div>
             ${item.aciklama ? `<div class="mini">${escapeHtml(item.aciklama)}</div>` : ''}
             <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
           </div>
-          <span class="task-status-pill ${ok ? 'done':(day < dateKey(new Date()) ? 'missing':'pending')}">${ok ? 'Yapıldı':(day < dateKey(new Date()) ? 'Eksik':'Devam')}</span>
+          <span class="task-status-pill ${statusClass}">${statusText}</span>
         </div>`;
     }
 
@@ -887,7 +934,6 @@
 
     function relevantAssignments(){
       const st = state.student;
-      const today = dateKey(new Date());
       return state.assignments.filter(a=>{
         if(a.active === false || a.aktif === false) return false;
         const type = safe(a.targetType || a.hedefTuru || a.target?.type || 'all').toLowerCase();
@@ -896,13 +942,13 @@
           (['class','sinif','sınıf'].includes(type) && safe(st.sinif) === val) ||
           (['group','grup'].includes(type) && safe(st.grup) === val) ||
           (['student','ogrenci','öğrenci'].includes(type) && safe(st.no) === val);
-        if(!targetOk) return false;
-        const start = a.startDate || a.baslangicTarihi || '';
-        const end = a.endDate || a.bitisTarihi || '';
-        if(start && today < start) return false;
-        if(end && today > end) return false;
-        return true;
-      }).sort((a,b)=>safe(a.startDate).localeCompare(safe(b.startDate)));
+        return targetOk;
+      }).sort((a,b)=>firstAssignmentDate(a).localeCompare(firstAssignmentDate(b)));
+    }
+
+    function firstAssignmentDate(a){
+      const days = Object.keys(normalizeAssignmentDays(a)).map(normalizeTaskDateKey).filter(Boolean).sort();
+      return days[0] || normalizeTaskDateKey(a.startDate || a.baslangicTarihi || '') || '';
     }
 
     function normalizeAssignmentDays(a){
@@ -926,15 +972,18 @@
 
     function calculateTaskStatus(){
       let total = 0, done = 0;
+      const today = dateKey(new Date());
       relevantAssignments().forEach(a=>{
         const days = normalizeAssignmentDays(a);
         Object.entries(days).forEach(([day,items])=>{
+          const normalizedDay = normalizeTaskDateKey(day);
+          if(!normalizedDay || normalizedDay < today) return;
           items.forEach(item=>{
             const hedef = Number(item.soruSayisi || item.soru || item.hedefSoru || item.total || 0);
             if(!hedef) return;
             total++;
             const ders = item.ders || item.course || '';
-            const got = state.records.filter(r=>r.dateKey === day && safe(r.ders) === safe(ders)).reduce((acc,r)=>acc+Number(r.toplamSoru||0),0);
+            const got = state.records.filter(r=>normalizeTaskDateKey(r.dateKey) === normalizedDay && safe(r.ders) === safe(ders)).reduce((acc,r)=>acc+Number(r.toplamSoru||0),0);
             if(got >= hedef) done++;
           });
         });
@@ -986,6 +1035,23 @@
       const m = String(x.getMonth()+1).padStart(2,'0');
       const day = String(x.getDate()).padStart(2,'0');
       return `${y}-${m}-${day}`;
+    }
+
+    function normalizeTaskDateKey(value){
+      const raw = safe(value);
+      if(!raw) return '';
+      if(/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      let m = raw.match(/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{4})$/);
+      if(m){
+        const day = String(Number(m[1])).padStart(2,'0');
+        const month = String(Number(m[2])).padStart(2,'0');
+        return `${m[3]}-${month}-${day}`;
+      }
+      m = raw.match(/^(\d{4})[.\/]?(\d{2})[.\/]?(\d{2})$/);
+      if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+      const parsed = new Date(raw);
+      if(!isNaN(parsed.getTime())) return dateKey(parsed);
+      return raw;
     }
 
     function parseDateKey(key){
