@@ -300,8 +300,75 @@
       ]}
     ];
 
-    firebase.initializeApp(CFG.firebaseConfig);
-    const db = firebase.database();
+    const DEFAULT_CFG = JSON.parse(JSON.stringify(CFG));
+    let db = null;
+
+    function simpleHash(text){
+      let hash=0;
+      const raw=safe(text);
+      for(let i=0;i<raw.length;i++){hash=((hash<<5)-hash)+raw.charCodeAt(i); hash|=0;}
+      return Math.abs(hash).toString(36);
+    }
+
+    function getDbBaseFromConfig(config=CFG.firebaseConfig){
+      return safe(config.databaseURL || DEFAULT_CFG.firebaseConfig.databaseURL).replace(/\/+$/,'');
+    }
+
+    function applySystemSettings(system={}){
+      const firebaseConfig = {...DEFAULT_CFG.firebaseConfig, ...(system.firebaseConfig || {})};
+      const dbBase = safe(system.dbBase || system.databaseURL || firebaseConfig.databaseURL || DEFAULT_CFG.firebaseConfig.databaseURL).replace(/\/+$/,'');
+      firebaseConfig.databaseURL = dbBase || DEFAULT_CFG.firebaseConfig.databaseURL;
+      CFG.firebaseConfig = firebaseConfig;
+      CFG.sheetId = safe(system.sheetId) || DEFAULT_CFG.sheetId;
+      CFG.systemSettings = {
+        firebaseEnabled: system.firebaseEnabled !== false,
+        sheetsEnabled: system.sheetsEnabled !== false,
+        smsEnabled: system.smsEnabled !== false,
+        smsSignature: system.smsSignature || 'Fenomen',
+        smsPrefix: system.smsPrefix || '',
+        sheetId: CFG.sheetId,
+        dbBase: firebaseConfig.databaseURL,
+        firebaseConfig
+      };
+      if(typeof state !== 'undefined') state.systemSettings = CFG.systemSettings;
+    }
+
+    async function readJsonFromBase(base,path){
+      const cleanBase=safe(base).replace(/\/+$/,'');
+      const cleanPath=safe(path).replace(/^\/+|\/+$/g,'');
+      const res = await fetch(`${cleanBase}/${cleanPath}.json?cb=${Date.now()}`, {cache:'no-store'});
+      if(!res.ok) throw new Error(`Firebase ayarı okunamadı: HTTP ${res.status}`);
+      return await res.json();
+    }
+
+    async function prepareRuntimeSettings(){
+      applySystemSettings({});
+      try{
+        const system = await readJsonFromBase(DEFAULT_CFG.firebaseConfig.databaseURL, 'verianalizi002/sistemAyarlari');
+        if(system) applySystemSettings(system);
+      }catch(err){
+        console.warn('Varsayılan sistem ayarları alınamadı, gömülü ayarlar kullanılacak:', err);
+      }
+      initRealtimeDb();
+    }
+
+    function getFirebaseApp(){
+      if(!window.firebase) throw new Error('Firebase kütüphanesi yüklenemedi.');
+      const cfg=CFG.firebaseConfig;
+      const name=`fenomen_student_${simpleHash(`${cfg.databaseURL}|${cfg.projectId}|${cfg.appId}`)}`;
+      let app=firebase.apps.find(a=>a.name===name);
+      if(!app) app=firebase.initializeApp(cfg,name);
+      return app;
+    }
+
+    function initRealtimeDb(){
+      db = firebase.database(getFirebaseApp());
+      return db;
+    }
+
+    function getDb(){
+      return db || initRealtimeDb();
+    }
 
     const state = {
       student:null,
@@ -312,11 +379,13 @@
       assignments:[],
       messages:[],
       activeTab:'tasks', selectedTaskDay:'today',
-      listeners:[]
+      listeners:[],
+      systemSettings:{firebaseEnabled:true,sheetsEnabled:true,smsEnabled:true,sheetId:CFG.sheetId,dbBase:CFG.firebaseConfig.databaseURL,firebaseConfig:CFG.firebaseConfig}
     };
 
     document.addEventListener('DOMContentLoaded', async()=>{
       bindLogin();
+      await prepareRuntimeSettings();
       await loadPublicSettings();
       const savedNo = localStorage.getItem('fenomenStudentNo');
       if(savedNo){
@@ -335,16 +404,29 @@
 
     async function loadPublicSettings(){
       try{
-        const kurumSnap = await db.ref('verianalizi002/kurumAyarlari').once('value');
+        const systemSnap = await getDb().ref('verianalizi002/sistemAyarlari').once('value');
+        if(systemSnap.val()){
+          const before = getDbBaseFromConfig();
+          applySystemSettings(systemSnap.val());
+          if(before !== getDbBaseFromConfig()) initRealtimeDb();
+        }
+      }catch(err){
+        console.warn('Aktif sistem ayarları alınamadı:', err);
+      }
+      try{
+        const kurumSnap = await getDb().ref('verianalizi002/kurumAyarlari').once('value');
         const kurum = kurumSnap.val() || {};
         const kurumAdi = safe(kurum.kurumAdi) || CFG.defaultInstitution;
         document.getElementById('loginInstitution').textContent = kurumAdi;
         document.getElementById('appInstitution').textContent = kurumAdi;
+        if(kurum.logoUrl){
+          document.querySelectorAll('.logo-img').forEach(img=>{ img.src = kurum.logoUrl; });
+        }
 
-        const limitSnap = await db.ref('verianalizi002/ayarlar/gunlukGirisLimitleri').once('value');
+        const limitSnap = await getDb().ref('verianalizi002/ayarlar/gunlukGirisLimitleri').once('value');
         state.limits = {...state.limits, ...(limitSnap.val() || {})};
 
-        const konuSnap = await db.ref('verianalizi002/lgsKonulari').once('value');
+        const konuSnap = await getDb().ref('verianalizi002/lgsKonulari').once('value');
         const remoteCourses = normalizeCourses(konuSnap.val());
         if(remoteCourses.length) state.courses = remoteCourses;
       }catch(err){
@@ -357,7 +439,7 @@
       if(!no){ showAlert('loginAlert','Öğrenci numarası yazmalısın.','bad'); return; }
       setLoading(true,'Öğrenci bilgileri kontrol ediliyor...');
       try{
-        if(!state.students.length) state.students = await fetchStudentsFromSheet();
+        if(!state.students.length) state.students = await loadStudentsFromConfiguredSources();
         const student = state.students.find(s=>safe(s.no) === safe(no));
         if(!student){
           if(!silent) showAlert('loginAlert','Bu öğrenci numarası tabloda bulunamadı.','bad');
@@ -376,7 +458,35 @@
       }
     }
 
+    async function loadStudentsFromConfiguredSources(){
+      let list = [];
+      if(state.systemSettings?.sheetsEnabled !== false){
+        try{ list = await fetchStudentsFromSheet(); }
+        catch(err){ console.warn('E-Tablo öğrenci listesi alınamadı, Firebase yedeği denenecek:', err); }
+      }
+      if(!list.length){
+        try{ list = await fetchStudentsFromFirebase(); }
+        catch(err){ console.warn('Firebase öğrenci yedeği alınamadı:', err); }
+      }
+      return list;
+    }
+
+    async function fetchStudentsFromFirebase(){
+      const snap = await getDb().ref('verianalizi002/ogrenciler').once('value');
+      const raw = snap.val() || {};
+      const arr = Array.isArray(raw) ? raw : Object.values(raw);
+      return arr.map(o=>({
+        no: cleanId(o.no || o.id || o.ogrenciNo || o.ÖĞRENCİ_NO || o.NO),
+        adsoyad: o.adsoyad || o.adSoyad || o.name || o.ogrenciAdi || o.ÖĞRENCİ_ADI || '',
+        sinif: o.sinif || o.sınıf || o.className || o.SINIF || '',
+        grup: o.grup || o.group || '',
+        veliTel: o.veliTel || o.telefon || o.tel || '',
+        veliMail: o.veliMail || o.email || ''
+      })).filter(s=>s.no && s.adsoyad);
+    }
+
     async function fetchStudentsFromSheet(){
+      if(state.systemSettings?.sheetsEnabled === false) throw new Error('Admin ayarında E-Tablo kapalı.');
       const table = await fetchGviz(CFG.studentSheet);
       const headers = table.cols.map(c=>normalizeHeader(c.label || c.id || ''));
       return table.rows.map(row=>{
@@ -431,15 +541,17 @@
       document.getElementById('studentClassPill').textContent = `Sınıf: ${state.student.sinif || '-'}`;
       const w = getWeekRange(new Date());
       document.getElementById('weekPill').textContent = `Hafta: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
+      const cPill = document.getElementById('connectionPill');
+      if(cPill) cPill.textContent = `Admin ayarları aktif • E-Tablo: ${safe(CFG.sheetId).slice(0,8)}...`;
       renderAll();
     }
 
     function attachStudentListeners(){
       detachListeners();
       const no = state.student.no;
-      const recordsRef = db.ref(`verianalizi001/calismaKayitlari/${no}`);
-      const assignRef = db.ref('verianalizi001/haftalikGorevler');
-      const msgRef = db.ref(`verianalizi001/ogrenciMesajlari/${no}`);
+      const recordsRef = getDb().ref(`verianalizi001/calismaKayitlari/${no}`);
+      const assignRef = getDb().ref('verianalizi001/haftalikGorevler');
+      const msgRef = getDb().ref(`verianalizi001/ogrenciMesajlari/${no}`);
 
       recordsRef.on('value', snap=>{
         const val = snap.val() || {};
@@ -665,7 +777,7 @@
         const now = new Date();
         const updates = {};
         items.forEach(item=>{
-          const key = db.ref(`verianalizi001/calismaKayitlari/${state.student.no}`).push().key;
+          const key = getDb().ref(`verianalizi001/calismaKayitlari/${state.student.no}`).push().key;
           updates[`verianalizi001/calismaKayitlari/${state.student.no}/${key}`] = {
             ogrenciNo: state.student.no,
             adsoyad: state.student.adsoyad,
@@ -683,7 +795,7 @@
         updates[`verianalizi001/ogrenciOzetleri/${state.student.no}/sonGuncelleme`] = new Date().toISOString();
         updates[`verianalizi001/ogrenciOzetleri/${state.student.no}/adsoyad`] = state.student.adsoyad;
         updates[`verianalizi001/ogrenciOzetleri/${state.student.no}/sinif`] = state.student.sinif || '';
-        await db.ref().update(updates);
+        await getDb().ref().update(updates);
         document.getElementById('entryRows').innerHTML = '';
         addEntryRow({}, false);
         showAlert('entryAlert','Çalışmalar başarıyla kaydedildi.','ok');
@@ -770,7 +882,7 @@
 
     async function markMessageRead(id){
       if(!state.student || !id) return;
-      await db.ref(`verianalizi001/ogrenciMesajlari/${state.student.no}/${id}`).update({okundu:true, okunduAt:new Date().toISOString()});
+      await getDb().ref(`verianalizi001/ogrenciMesajlari/${state.student.no}/${id}`).update({okundu:true, okunduAt:new Date().toISOString()});
     }
 
     function relevantAssignments(){
