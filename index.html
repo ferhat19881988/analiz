@@ -28,7 +28,7 @@
       --shadow:0 18px 45px rgba(15, 23, 42, .08);
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-    html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;width:100%;overflow-x:hidden}
+    html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;width:100%;overflow-x:hidden;overflow-y:auto;height:auto}
     body{
       margin:0;
       width:100%;
@@ -38,7 +38,8 @@
       color:var(--text);
       min-height:100vh;
       min-height:100dvh;
-      overscroll-behavior-y:none;
+      overflow-y:auto;
+      overscroll-behavior-y:auto;
       padding-left:env(safe-area-inset-left);
       padding-right:env(safe-area-inset-right);
     }
@@ -194,7 +195,6 @@
           <div class="meta-row">
             <span id="studentNoPill" class="pill blue">No</span>
             <span id="studentClassPill" class="pill">Sınıf</span>
-            <span id="studentGroupPill" class="pill">Grup</span>
             <span id="weekPill" class="pill green">Hafta</span>
           </div>
         </div>
@@ -422,7 +422,6 @@
       document.getElementById('studentName').textContent = state.student.adsoyad;
       document.getElementById('studentNoPill').textContent = `No: ${state.student.no}`;
       document.getElementById('studentClassPill').textContent = `Sınıf: ${state.student.sinif || '-'}`;
-      document.getElementById('studentGroupPill').textContent = `Grup: ${state.student.grup || '-'}`;
       const w = getWeekRange(new Date());
       document.getElementById('weekPill').textContent = `Hafta: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
       renderAll();
@@ -508,7 +507,7 @@
       if(state.activeTab === 'entry') target.innerHTML = renderEntry();
       if(state.activeTab === 'analysis') target.innerHTML = renderAnalysis();
       if(state.activeTab === 'messages') target.innerHTML = renderMessages();
-      if(state.activeTab === 'entry') setTimeout(()=>addEntryRow(),0);
+      if(state.activeTab === 'entry') setTimeout(()=>addEntryRow({}, false),0);
     }
 
     function renderTasks(){
@@ -569,13 +568,13 @@
         </div>
         <div id="entryRows"></div>
         <div class="meta-row" style="margin-top:8px">
-          <button class="btn btn-light" onclick="addEntryRow()">+ Satır Ekle</button>
+          <button class="btn btn-light" onclick="addEntryRow({}, true)">+ Satır Ekle</button>
           <button class="btn btn-primary" onclick="saveEntries()">Çalışmaları Kaydet</button>
         </div>
         <div id="entryAlert" class="alert"></div>`;
     }
 
-    function addEntryRow(prefill={}){
+    function addEntryRow(prefill={}, scrollAfter=true){
       const rows = document.getElementById('entryRows');
       if(!rows) return;
       const id = `row_${Date.now()}_${Math.floor(Math.random()*9999)}`;
@@ -599,6 +598,12 @@
       const course = html.querySelector('.entry-course');
       if(prefill.ders) course.value = prefill.ders;
       updateTopicSelects(course);
+      if(scrollAfter){
+        requestAnimationFrame(()=>{
+          const top = html.getBoundingClientRect().top + window.pageYOffset - 88;
+          window.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+        });
+      }
     }
 
     function removeEntryRow(btn){
@@ -664,7 +669,7 @@
         updates[`verianalizi001/ogrenciOzetleri/${state.student.no}/sinif`] = state.student.sinif || '';
         await db.ref().update(updates);
         document.getElementById('entryRows').innerHTML = '';
-        addEntryRow();
+        addEntryRow({}, false);
         showAlert('entryAlert','Çalışmalar başarıyla kaydedildi.','ok');
       }catch(err){
         console.error(err);
