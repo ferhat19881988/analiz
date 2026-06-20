@@ -154,6 +154,13 @@
       .pill{font-size:12px}
       .stat-card strong{font-size:22px}
     }
+
+    .day-filter-strip{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;margin-bottom:8px;scrollbar-width:none}
+    .day-filter-strip::-webkit-scrollbar{display:none}
+    .day-filter-btn{white-space:nowrap;border:1px solid var(--line);background:#fff;color:#334155;border-radius:999px;padding:9px 12px;font-size:13px;font-weight:800;cursor:pointer}
+    .day-filter-btn.active{background:#eef4ff;color:#1d4ed8;border-color:#bfdbfe;box-shadow:0 8px 18px rgba(29,78,216,.12)}
+    .task-status-pill{display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;border:1px solid var(--line)}
+    .task-status-pill.done{background:#dcfce7;color:#166534;border-color:#bbf7d0}.task-status-pill.pending{background:#fff7ed;color:#9a3412;border-color:#fed7aa}.task-status-pill.missing{background:#fee2e2;color:#991b1b;border-color:#fecaca}
   </style>
 </head>
 <body>
@@ -304,7 +311,7 @@
       records:[],
       assignments:[],
       messages:[],
-      activeTab:'tasks',
+      activeTab:'tasks', selectedTaskDay:'today',
       listeners:[]
     };
 
@@ -512,23 +519,32 @@
 
     function renderTasks(){
       const list = relevantAssignments();
+      const allDays = [...new Set(list.flatMap(a=>Object.keys(normalizeAssignmentDays(a))))].sort();
+      const today = dateKey(new Date());
+      if(!state.selectedTaskDay) state.selectedTaskDay = allDays.includes(today) ? today : 'all';
+      if(state.selectedTaskDay !== 'all' && !allDays.includes(state.selectedTaskDay)) state.selectedTaskDay = allDays.includes(today) ? today : 'all';
+      const filter = allDays.length ? `<div class="day-filter-strip"><button class="day-filter-btn ${state.selectedTaskDay==='all'?'active':''}" onclick="setTaskDay('all')">Tümü</button>${allDays.map(d=>`<button class="day-filter-btn ${state.selectedTaskDay===d?'active':''}" onclick="setTaskDay('${d}')">${formatDateTR(parseDateKey(d))}</button>`).join('')}</div>` : '';
       const head = `
         <div class="section-head">
-          <div><h3>Haftalık Görevlendirmeler</h3><p>Görev tamamlama durumu çalışma girişlerine göre otomatik hesaplanır.</p></div>
-        </div>`;
+          <div><h3>Haftalık Görevlendirmeler</h3><p>Gün seçerek sadece o günkü görevlerini görebilirsin.</p></div>
+        </div>${filter}`;
       if(!list.length) return head + `<div class="empty">Şu anda tanımlı haftalık görev görünmüyor.</div>`;
-      return head + list.map(a=>assignmentHtml(a)).join('');
+      return head + list.map(a=>assignmentHtml(a,state.selectedTaskDay)).join('');
     }
 
-    function assignmentHtml(a){
+    function setTaskDay(day){ state.selectedTaskDay = day; renderTab(); }
+
+    function assignmentHtml(a, selectedDay='all'){
       const start = a.startDate || a.baslangicTarihi || '';
       const end = a.endDate || a.bitisTarihi || '';
       const days = normalizeAssignmentDays(a);
-      const dayHtml = Object.keys(days).sort().map(day=>{
+      const keys = Object.keys(days).sort().filter(day=>selectedDay==='all' || selectedDay===day);
+      const dayHtml = keys.map(day=>{
         const items = days[day];
         const lines = items.map(item=>taskItemHtml(day,item)).join('');
         return `<div class="task-card"><div class="task-top"><div><p class="task-title">${formatDateTR(parseDateKey(day))}</p><p class="task-sub">${escapeHtml(dayNameTR(day))}</p></div></div>${lines}</div>`;
       }).join('');
+      if(!dayHtml) return '';
       return `
         <article class="task-card">
           <div class="task-top">
@@ -556,7 +572,7 @@
             ${item.aciklama ? `<div class="mini">${escapeHtml(item.aciklama)}</div>` : ''}
             <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
           </div>
-          <span class="pill ${ok ? 'green':'orange'}">${ok ? 'Tamamlandı':'Devam'}</span>
+          <span class="task-status-pill ${ok ? 'done':(day < dateKey(new Date()) ? 'missing':'pending')}">${ok ? 'Yapıldı':(day < dateKey(new Date()) ? 'Eksik':'Devam')}</span>
         </div>`;
     }
 
