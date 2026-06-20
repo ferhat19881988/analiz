@@ -542,7 +542,7 @@
       const w = getWeekRange(new Date());
       document.getElementById('weekPill').textContent = `Hafta: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
       const cPill = document.getElementById('connectionPill');
-      if(cPill) cPill.textContent = `Admin ayarları aktif • E-Tablo: ${safe(CFG.sheetId).slice(0,8)}...`;
+      if(cPill) cPill.textContent = `Admin ayarları aktif •`;
       renderAll();
     }
 
