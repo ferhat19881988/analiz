@@ -908,7 +908,7 @@
     }
 
     function lastRecordsHtml(){
-      const recent = state.records.slice(0,8);
+      const recent = state.records.slice(0,10);
       if(!recent.length) return `<div class="empty">Henüz kayıt bulunmuyor.</div>`;
       return recent.map(r=>`<div class="task-line"><div><strong>${escapeHtml(r.ders)} • ${escapeHtml(r.anaKonu || '')}</strong><div class="mini">${escapeHtml(r.tarih || r.dateKey)} ${escapeHtml(r.saat || '')} • Toplam: ${r.toplamSoru||0} • Doğru: ${r.dogru||0} • Yanlış: ${r.yanlis||0} • Boş: ${r.bos||0}</div></div><span class="pill blue">${escapeHtml(r.altKonu || 'Kayıt')}</span></div>`).join('');
     }
