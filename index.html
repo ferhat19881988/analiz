@@ -213,7 +213,7 @@
       <div id="summaryCards" class="grid grid-4"></div>
 
       <nav class="tabs" aria-label="Panel sekmeleri">
-        <button class="tab active" data-tab="tasks" onclick="switchTab('tasks')">Haftalık Görevler</button>
+        <button class="tab active" data-tab="tasks" onclick="switchTab('tasks')">Görevler</button>
         <button class="tab" data-tab="entry" onclick="switchTab('entry')">Çalışma Girişi</button>
         <button class="tab" data-tab="analysis" onclick="switchTab('analysis')">Analizlerim</button>
         <button class="tab" data-tab="messages" onclick="switchTab('messages')">Öğretmen Mesajları</button>
@@ -540,7 +540,7 @@
       document.getElementById('studentNoPill').textContent = `No: ${state.student.no}`;
       document.getElementById('studentClassPill').textContent = `Sınıf: ${state.student.sinif || '-'}`;
       const w = getWeekRange(new Date());
-      document.getElementById('weekPill').textContent = `Hafta: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
+      document.getElementById('weekPill').textContent = `Aralık: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
       const cPill = document.getElementById('connectionPill');
       if(cPill) cPill.textContent = `Admin ayarları aktif •`;
       renderAll();
@@ -609,7 +609,7 @@
       const taskStatus = calculateTaskStatus();
       const html = `
         ${statCard('Bugünkü Soru', sumField(todayRecords,'toplamSoru'), 'Toplam girilen soru')}
-        ${statCard('Bu Hafta', sumField(weekRecords,'toplamSoru'), 'Pazartesi başlangıçlı')}
+        ${statCard('7 Gün', sumField(weekRecords,'toplamSoru'), 'Bugünden başlayan')}
         ${statCard('Görev Durumu', `${taskStatus.done}/${taskStatus.total}`, 'Tamamlanan görev')}
         ${statCard('Mesaj', unread, 'Okunmamış öğretmen mesajı')}
       `;
@@ -908,7 +908,7 @@
     }
 
     function lastRecordsHtml(){
-      const recent = state.records.slice(0,10);
+      const recent = state.records.slice(0,8);
       if(!recent.length) return `<div class="empty">Henüz kayıt bulunmuyor.</div>`;
       return recent.map(r=>`<div class="task-line"><div><strong>${escapeHtml(r.ders)} • ${escapeHtml(r.anaKonu || '')}</strong><div class="mini">${escapeHtml(r.tarih || r.dateKey)} ${escapeHtml(r.saat || '')} • Toplam: ${r.toplamSoru||0} • Doğru: ${r.dogru||0} • Yanlış: ${r.yanlis||0} • Boş: ${r.bos||0}</div></div><span class="pill blue">${escapeHtml(r.altKonu || 'Kayıt')}</span></div>`).join('');
     }
@@ -935,24 +935,25 @@
     function relevantAssignments(){
       const st = state.student;
       return state.assignments.filter(a=>{
-        if(a.active === false || a.aktif === false) return false;
+        if(a.active === false || a.aktif === false || a.status === 'silindi') return false;
         const type = safe(a.targetType || a.hedefTuru || a.target?.type || 'all').toLowerCase();
         const val = safe(a.targetValue || a.hedefDegeri || a.target?.value || '');
-        const targetOk = type === 'all' || type === 'genel' ||
+        const studentNos = Array.isArray(a.studentNos) ? a.studentNos.map(cleanId) : Array.isArray(a.ogrenciler) ? a.ogrenciler.map(cleanId) : [];
+        const targetOk = type === 'all' || type === 'genel' || val === 'all' ||
           (['class','sinif','sınıf'].includes(type) && safe(st.sinif) === val) ||
           (['group','grup'].includes(type) && safe(st.grup) === val) ||
-          (['student','ogrenci','öğrenci'].includes(type) && safe(st.no) === val);
+          (['student','students','ogrenci','öğrenci'].includes(type) && (safe(st.no) === cleanId(val) || studentNos.includes(cleanId(st.no))));
         return targetOk;
       }).sort((a,b)=>firstAssignmentDate(a).localeCompare(firstAssignmentDate(b)));
     }
 
     function firstAssignmentDate(a){
       const days = Object.keys(normalizeAssignmentDays(a)).map(normalizeTaskDateKey).filter(Boolean).sort();
-      return days[0] || normalizeTaskDateKey(a.startDate || a.baslangicTarihi || '') || '';
+      return days[0] || normalizeTaskDateKey(a.startDate || a.start || a.baslangicTarihi || '') || '';
     }
 
     function normalizeAssignmentDays(a){
-      const raw = a.days || a.gunler || a.program || {};
+      const raw = a.days || a.gunler || a.program || a.daysObj || a.daysObject || {};
       const out = {};
       if(Array.isArray(raw)){
         raw.forEach(d=>{ if(d.date || d.tarih) out[d.date || d.tarih] = normalizeDayItems(d.items || d.gorevler || []); });
@@ -997,7 +998,10 @@
       if(type === 'all' || type === 'genel') return 'Tüm Öğrenciler';
       if(['class','sinif','sınıf'].includes(type)) return `Sınıf: ${val}`;
       if(['group','grup'].includes(type)) return `Grup: ${val}`;
-      if(['student','ogrenci','öğrenci'].includes(type)) return `Öğrenci: ${val}`;
+      if(['student','students','ogrenci','öğrenci'].includes(type)){
+        const nos = Array.isArray(a.studentNos) ? a.studentNos.map(cleanId) : [];
+        return nos.length > 1 ? `${nos.length} Öğrenci` : `Öğrenci: ${val || nos[0] || ''}`;
+      }
       return 'Görev';
     }
 
@@ -1020,8 +1024,6 @@
 
     function getWeekRange(d){
       const start = new Date(d);
-      const diff = (start.getDay()+6)%7;
-      start.setDate(start.getDate()-diff);
       start.setHours(0,0,0,0);
       const end = new Date(start);
       end.setDate(start.getDate()+6);
