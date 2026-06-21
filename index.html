@@ -162,6 +162,25 @@
     .task-status-pill{display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;border:1px solid var(--line)}
     .task-status-pill.done{background:#dcfce7;color:#166534;border-color:#bbf7d0}.task-status-pill.pending{background:#fff7ed;color:#9a3412;border-color:#fed7aa}.task-status-pill.missing{background:#fee2e2;color:#991b1b;border-color:#fecaca}
 
+    .old-task-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) auto;gap:10px;align-items:end;background:#f8fafc;border:1px solid var(--line);border-radius:18px;padding:12px;margin:0 0 14px}
+    .old-task-filter label{margin-bottom:6px}
+    .old-task-filter input{min-height:44px;padding:10px 12px}
+    .old-task-filter .filter-actions{display:flex;gap:8px;align-items:end}
+    .old-task-count{margin:0 0 10px;color:var(--muted);font-size:13px;font-weight:700}
+    .entry-action-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+
+    @media(max-width:560px){
+      .tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;overflow:visible;padding:4px 0 12px}
+      .tab{width:100%;white-space:normal;border-radius:16px;min-height:48px;text-align:center}
+      .day-filter-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;overflow:visible}
+      .day-filter-btn{width:100%;white-space:normal;border-radius:16px;min-height:42px}
+      .entry-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .entry-action-grid .btn{width:100%;padding-left:10px;padding-right:10px}
+      .old-task-filter{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px}
+      .old-task-filter .filter-actions{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .old-task-filter .filter-actions .btn{width:100%}
+    }
+
     /* Çalışma satırı sil butonu: telefon ekranında kaymayı engeller */
     .entry-row{
       position:relative;
@@ -457,7 +476,7 @@
       records:[],
       assignments:[],
       messages:[],
-      activeTab:'tasks', selectedTaskDay:'today',
+      activeTab:'tasks', selectedTaskDay:'today', oldTaskStart:'', oldTaskEnd:'',
       listeners:[],
       systemSettings:{firebaseEnabled:true,sheetsEnabled:true,smsEnabled:true,sheetId:CFG.sheetId,dbBase:CFG.firebaseConfig.databaseURL,firebaseConfig:CFG.firebaseConfig}
     };
@@ -618,11 +637,47 @@
       document.getElementById('studentName').textContent = state.student.adsoyad;
       document.getElementById('studentNoPill').textContent = `No: ${state.student.no}`;
       document.getElementById('studentClassPill').textContent = `Sınıf: ${state.student.sinif || '-'}`;
-      const w = getWeekRange(new Date());
-      document.getElementById('weekPill').textContent = `Aralık: ${formatDateTR(w.start)} - ${formatDateTR(w.end)}`;
+      renderActiveDatePill();
       const cPill = document.getElementById('connectionPill');
       if(cPill) cPill.textContent = `Admin ayarları aktif •`;
       renderAll();
+    }
+
+    function renderActiveDatePill(){
+      const pill = document.getElementById('weekPill');
+      if(!pill || !state.student) return;
+      const latestRange = latestActiveAssignmentRange();
+      if(!latestRange || !latestRange.startKey){
+        pill.textContent = `Aktif Tarih: ${formatDateTR(new Date())}`;
+        return;
+      }
+      const startText = formatDateTR(parseDateKey(latestRange.startKey));
+      const endText = latestRange.endKey && latestRange.endKey !== latestRange.startKey ? ` - ${formatDateTR(parseDateKey(latestRange.endKey))}` : '';
+      pill.textContent = `Aktif Tarih: ${startText}${endText}`;
+    }
+
+    function latestActiveAssignmentRange(){
+      const ranges = relevantAssignments()
+        .map(a=>assignmentDateRange(a))
+        .filter(range=>range.startKey);
+      ranges.sort((a,b)=>{
+        const aEnd = a.endKey || a.startKey;
+        const bEnd = b.endKey || b.startKey;
+        return bEnd.localeCompare(aEnd) || b.startKey.localeCompare(a.startKey);
+      });
+      return ranges[0] || null;
+    }
+
+    function assignmentDateRange(a){
+      const days = Object.keys(normalizeAssignmentDays(a)).map(normalizeTaskDateKey).filter(Boolean).sort();
+      let startKey = normalizeTaskDateKey(a.startDate || a.start || a.baslangicTarihi || a['başlangıçTarihi'] || a.baslangic || a['başlangıç'] || '') || days[0] || '';
+      let endKey = normalizeTaskDateKey(a.endDate || a.end || a.bitisTarihi || a['bitişTarihi'] || a.bitis || a['bitiş'] || '') || days[days.length - 1] || startKey;
+      if(startKey && endKey && startKey > endKey){
+        const tmp = startKey;
+        startKey = endKey;
+        endKey = tmp;
+      }
+      return {startKey,endKey};
     }
 
     function attachStudentListeners(){
@@ -662,6 +717,9 @@
       state.records = [];
       state.assignments = [];
       state.messages = [];
+      state.selectedTaskDay = 'today';
+      state.oldTaskStart = '';
+      state.oldTaskEnd = '';
       document.getElementById('appView').classList.add('hidden');
       document.getElementById('loginView').classList.remove('hidden');
       document.getElementById('studentNoInput').value = '';
@@ -675,6 +733,7 @@
 
     function renderAll(){
       if(!state.student) return;
+      renderActiveDatePill();
       renderSummaryCards();
       renderTab();
     }
@@ -726,6 +785,19 @@
 
     function setTaskDay(day){ state.selectedTaskDay = day; renderTab(); }
 
+    function setOldTaskDateFilter(field,value){
+      const normalized = normalizeTaskDateKey(value);
+      if(field === 'start') state.oldTaskStart = normalized;
+      if(field === 'end') state.oldTaskEnd = normalized;
+      renderTab();
+    }
+
+    function clearOldTaskDateFilter(){
+      state.oldTaskStart = '';
+      state.oldTaskEnd = '';
+      renderTab();
+    }
+
     function assignmentHtml(a, selectedDay='all', dayFilter=()=>true){
       const start = a.startDate || a.baslangicTarihi || '';
       const end = a.endDate || a.bitisTarihi || '';
@@ -756,24 +828,54 @@
 
     function oldAssignmentsHtml(list){
       const today = dateKey(new Date());
-      const oldDays = [];
+      const allOldDays = [];
       list.forEach(a=>{
         const days = normalizeAssignmentDays(a);
         Object.entries(days).forEach(([day,items])=>{
           const normalizedDay = normalizeTaskDateKey(day);
           if(normalizedDay && normalizedDay < today){
-            oldDays.push({assignment:a, day:normalizedDay, items:normalizeDayItems(items)});
+            allOldDays.push({assignment:a, day:normalizedDay, items:normalizeDayItems(items)});
           }
         });
       });
-      oldDays.sort((a,b)=>b.day.localeCompare(a.day) || safe(a.assignment.title || a.assignment.baslik).localeCompare(safe(b.assignment.title || b.assignment.baslik),'tr'));
-      if(!oldDays.length) return '';
+      allOldDays.sort((a,b)=>b.day.localeCompare(a.day) || safe(a.assignment.title || a.assignment.baslik).localeCompare(safe(b.assignment.title || b.assignment.baslik),'tr'));
+      if(!allOldDays.length){
+        return `
+          <div style="height:14px"></div>
+          <div class="section-head">
+            <div><h3>Geçmiş Görevlendirmeler</h3><p>Günü geçen görevlendirmeler burada tarih filtresiyle listelenir.</p></div>
+          </div>
+          <div class="empty">Henüz geçmiş görevlendirme bulunmuyor.</div>`;
+      }
+
+      const rawStart = state.oldTaskStart || '';
+      const rawEnd = state.oldTaskEnd || '';
+      const filterStart = rawStart && rawEnd && rawStart > rawEnd ? rawEnd : rawStart;
+      const filterEnd = rawStart && rawEnd && rawStart > rawEnd ? rawStart : rawEnd;
+      const oldDays = allOldDays.filter(entry=>(!filterStart || entry.day >= filterStart) && (!filterEnd || entry.day <= filterEnd));
+      const filterHtml = `
+        <div class="old-task-filter">
+          <div>
+            <label for="oldTaskStart">Başlangıç Tarihi</label>
+            <input id="oldTaskStart" type="date" value="${escapeHtml(rawStart)}" onchange="setOldTaskDateFilter('start', this.value)">
+          </div>
+          <div>
+            <label for="oldTaskEnd">Bitiş Tarihi</label>
+            <input id="oldTaskEnd" type="date" value="${escapeHtml(rawEnd)}" onchange="setOldTaskDateFilter('end', this.value)">
+          </div>
+          <div class="filter-actions">
+            <button class="btn btn-light" type="button" onclick="clearOldTaskDateFilter()">Filtreyi Temizle</button>
+          </div>
+        </div>
+        <p class="old-task-count">${oldDays.length}/${allOldDays.length} geçmiş görev gösteriliyor.</p>`;
+
       return `
         <div style="height:14px"></div>
         <div class="section-head">
-          <div><h3>Eski Görevlendirmeler</h3><p>Günü geçen görevlendirmeler burada en yeni tarihten eski tarihe doğru listelenir.</p></div>
+          <div><h3>Geçmiş Görevlendirmeler</h3><p>Günü geçen görevlendirmeler burada listelenir. Başlangıç ve bitiş tarihi seçerek eski görevleri süzebilirsin.</p></div>
         </div>
-        ${oldDays.map(entry=>{
+        ${filterHtml}
+        ${oldDays.length ? oldDays.map(entry=>{
           const a = entry.assignment;
           const lines = entry.items.map(item=>taskItemHtml(entry.day,item)).join('');
           return `<article class="task-card">
@@ -782,11 +884,11 @@
                 <p class="task-title">${formatDateTR(parseDateKey(entry.day))} • ${escapeHtml(a.title || a.baslik || 'Çalışma Programı')}</p>
                 <p class="task-sub">${escapeHtml(dayNameTR(entry.day))} • ${escapeHtml(targetLabel(a))}</p>
               </div>
-              <span class="pill orange">Eski Görev</span>
+              <span class="pill orange">Geçmiş Görev</span>
             </div>
-            ${lines || '<div class="empty">Bu eski görevde içerik bulunmuyor.</div>'}
+            ${lines || '<div class="empty">Bu geçmiş görevde içerik bulunmuyor.</div>'}
           </article>`;
-        }).join('')}`;
+        }).join('') : '<div class="empty">Seçilen tarih aralığında geçmiş görev bulunmuyor.</div>'}`;
     }
 
     function taskItemHtml(day,item){
@@ -821,7 +923,7 @@
           <span class="pill blue">Ders başına en fazla ${Number(state.limits.maxEntryPerCourse || 3)} giriş</span>
         </div>
         <div id="entryRows"></div>
-        <div class="meta-row" style="margin-top:8px">
+        <div class="entry-action-grid">
           <button class="btn btn-light" onclick="addEntryRow({}, true)">+ Satır Ekle</button>
           <button class="btn btn-primary" onclick="saveEntries()">Çalışmaları Kaydet</button>
         </div>
