@@ -161,6 +161,85 @@
     .day-filter-btn.active{background:#eef4ff;color:#1d4ed8;border-color:#bfdbfe;box-shadow:0 8px 18px rgba(29,78,216,.12)}
     .task-status-pill{display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;border:1px solid var(--line)}
     .task-status-pill.done{background:#dcfce7;color:#166534;border-color:#bbf7d0}.task-status-pill.pending{background:#fff7ed;color:#9a3412;border-color:#fed7aa}.task-status-pill.missing{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+
+    /* Çalışma satırı sil butonu: telefon ekranında kaymayı engeller */
+    .entry-row{
+      position:relative;
+      overflow:hidden;
+      padding:18px 16px 16px;
+    }
+    .entry-row::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      width:4px;
+      background:linear-gradient(180deg,#2563eb,#16a34a);
+      opacity:.75;
+    }
+    .entry-row .row-title.entry-row-head{
+      display:flex!important;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      min-height:42px;
+      margin:0 0 14px;
+      padding:0 96px 0 0;
+    }
+    .entry-row-title-block{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .entry-row-title-block strong{
+      color:#0f172a;
+      font-size:15px;
+      line-height:1.2;
+    }
+    .entry-row-title-block .mini{
+      line-height:1.35;
+    }
+    .entry-delete-btn{
+      position:absolute;
+      top:14px;
+      right:14px;
+      z-index:3;
+      min-height:38px;
+      padding:8px 12px;
+      border-radius:999px;
+      font-size:12px;
+      box-shadow:0 10px 22px rgba(153,27,27,.14);
+      white-space:nowrap;
+    }
+    .entry-delete-btn:hover{
+      transform:translateY(-1px);
+      box-shadow:0 14px 26px rgba(153,27,27,.18);
+    }
+    .entry-delete-btn:active{
+      transform:scale(.98);
+    }
+    @media(max-width:560px){
+      .entry-row{
+        padding:15px 12px 14px;
+      }
+      .entry-row .row-title.entry-row-head{
+        min-height:42px;
+        padding-right:82px;
+        margin-bottom:14px;
+      }
+      .entry-row-title-block strong{
+        font-size:14px;
+      }
+      .entry-delete-btn{
+        top:12px;
+        right:12px;
+        min-height:36px;
+        padding:8px 10px;
+        font-size:12px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -758,7 +837,7 @@
       html.className = 'entry-row';
       html.dataset.rowId = id;
       html.innerHTML = `
-        <div class="row-title"><strong>Çalışma Satırı</strong><button class="btn btn-danger" onclick="removeEntryRow(this)">Sil</button></div>
+        <div class="row-title entry-row-head"><div class="entry-row-title-block"><strong>Çalışma Satırı</strong><span class="mini">Ders, konu ve soru bilgisi</span></div><button type="button" class="btn btn-danger entry-delete-btn" onclick="removeEntryRow(this)" aria-label="Bu çalışma satırını sil">🗑 Sil</button></div>
         <div class="grid grid-3">
           <div><label>Ders</label><select class="entry-course" onchange="updateTopicSelects(this)">${courseOptions}</select></div>
           <div><label>Ana Konu</label><select class="entry-main" onchange="updateSubTopicSelect(this)"></select></div>
