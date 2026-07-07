@@ -308,6 +308,8 @@
       box-shadow:0 16px 34px rgba(37,99,235,.13);
     }
     .assignment-package-card.life-future{background:linear-gradient(180deg,#fff7ed,#fff)}
+    .assignment-package-card.past-package{background:linear-gradient(180deg,#f8fafc,#fff)}
+    .assignment-package-card.past-package.open{border-color:#cbd5e1;background:linear-gradient(180deg,#f1f5f9,#fff);box-shadow:0 16px 34px rgba(15,23,42,.10)}
     .assignment-package-card strong{
       color:#0f172a;
       font-size:15px;
@@ -722,7 +724,7 @@
       records:[],
       assignments:[],
       messages:[],
-      activeTab:'tasks', selectedTaskDay:'today', selectedTaskPackage:'', selectedTaskPackageDay:{}, taskAssignmentView:'current', oldTaskStart:'', oldTaskEnd:'',
+      activeTab:'tasks', selectedTaskDay:'today', selectedTaskPackage:'', selectedTaskPackageDay:{}, selectedPastTaskPackage:'', selectedPastTaskPackageDay:{}, taskAssignmentView:'current', oldTaskStart:'', oldTaskEnd:'',
       listeners:[],
       systemSettings:{firebaseEnabled:true,sheetsEnabled:true,smsEnabled:true,sheetId:CFG.sheetId,dbBase:CFG.firebaseConfig.databaseURL,firebaseConfig:CFG.firebaseConfig}
     };
@@ -1015,7 +1017,7 @@
       if(state.taskAssignmentView === 'history') return renderOldAssignmentsView(list);
 
       const today = dateKey(new Date());
-      const oldCount = collectOldAssignmentDays(list).length;
+      const oldCount = buildPastAssignmentPackages(list).length;
       const packages = buildAssignmentPackages(list, day=>normalizeTaskDateKey(day) >= today);
       const historyButton = oldCount ? `<button class="btn btn-light" type="button" onclick="showOldAssignments()">Geçmiş Görevleri Gör (${oldCount})</button>` : `<button class="btn btn-light" type="button" disabled>Geçmiş Görev Yok</button>`;
       const head = `
@@ -1045,6 +1047,25 @@
       const id = safe(packageId);
       state.selectedTaskPackage = id;
       state.selectedTaskPackageDay = {...(state.selectedTaskPackageDay || {}), [id]: normalizeTaskDateKey(day)};
+      renderTab();
+    }
+
+    function setPastAssignmentPackage(packageId, firstDay){
+      const id = safe(packageId);
+      if(state.selectedPastTaskPackage === id){
+        state.selectedPastTaskPackage = '';
+      }else{
+        state.selectedPastTaskPackage = id;
+        state.selectedPastTaskPackageDay = {...(state.selectedPastTaskPackageDay || {}), [id]: normalizeTaskDateKey(firstDay) || ''};
+      }
+      renderTab();
+      scrollTaskContentTop();
+    }
+
+    function setPastAssignmentPackageDay(packageId, day){
+      const id = safe(packageId);
+      state.selectedPastTaskPackage = id;
+      state.selectedPastTaskPackageDay = {...(state.selectedPastTaskPackageDay || {}), [id]: normalizeTaskDateKey(day)};
       renderTab();
     }
 
@@ -1151,6 +1172,13 @@
         });
     }
 
+    function buildPastAssignmentPackages(assignments){
+      const today = dateKey(new Date());
+      return buildAssignmentPackages(assignments)
+        .filter(pkg=>pkg.end && pkg.end < today)
+        .sort((a,b)=>(b.end || '').localeCompare(a.end || '') || (b.start || '').localeCompare(a.start || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+    }
+
     function packageLifeStatus(pkg){
       const today = dateKey(new Date());
       if(pkg.end && pkg.end < today) return {key:'passive', label:'Pasif'};
@@ -1237,16 +1265,20 @@
       return `<div class="assignment-package-note">Telefon ekranında önce paket özetine bakabilir, sonra gün seçerek hangi dersten kaç soru kaldığını görebilirsin.</div>${packageCards}${detail}`;
     }
 
-    function assignmentPackageDetailHtml(pkg){
+    function assignmentPackageDetailHtml(pkg, options={}){
       const today = dateKey(new Date());
-      const selectedDay = (state.selectedTaskPackageDay || {})[pkg.id];
+      const stateDayMapName = options.dayMapName || 'selectedTaskPackageDay';
+      const daySetter = options.daySetter || 'setAssignmentPackageDay';
+      const badgeText = options.badgeText || 'Açık paket';
+      const detailNote = options.detailNote || 'Bu gün için ders ders hedef ve tamamlanma durumu';
+      const selectedDay = (state[stateDayMapName] || {})[pkg.id];
       const activeDay = selectedDay && pkg.days.includes(selectedDay) ? selectedDay : (pkg.days.includes(today) ? today : pkg.days[0]);
-      state.selectedTaskPackageDay = {...(state.selectedTaskPackageDay || {}), [pkg.id]: activeDay};
+      state[stateDayMapName] = {...(state[stateDayMapName] || {}), [pkg.id]: activeDay};
       const totalProgress = packageProgress(pkg);
       const totalPct = totalProgress.target ? Math.min(100, Math.round(totalProgress.done / totalProgress.target * 100)) : 0;
       const dayButtons = `<div class="package-day-tabs">${pkg.days.map(day=>{
         const p = packageDayProgress(pkg, day);
-        return `<button type="button" class="package-day-btn ${day === activeDay ? 'active' : ''}" onclick="setAssignmentPackageDay(${jsArg(pkg.id)}, ${jsArg(day)})">
+        return `<button type="button" class="package-day-btn ${day === activeDay ? 'active' : ''}" onclick="${daySetter}(${jsArg(pkg.id)}, ${jsArg(day)})">
           <span>${escapeHtml(formatDateValueTR(day))}</span>
           <small>${escapeHtml(dayNameTR(day))}</small>
           <em>${escapeHtml(p.done)}/${escapeHtml(p.target)} • ${escapeHtml(p.label)}</em>
@@ -1254,10 +1286,10 @@
       }).join('')}</div>`;
       const dayProgress = packageDayProgress(pkg, activeDay);
       const lessonRows = dayProgress.targets.map(row=>assignmentLessonProgressHtml(activeDay, row)).join('');
-      return `<article class="assignment-package-detail" id="activeAssignmentPackage">
+      return `<article class="assignment-package-detail" id="${escapeHtml(options.detailId || 'activeAssignmentPackage')}">
         <div class="assignment-package-head">
           <div>
-            <span class="package-index">Açık paket</span>
+            <span class="package-index">${escapeHtml(badgeText)}</span>
             <h4>${escapeHtml(packageTargetLabel(pkg))}</h4>
             <p>${escapeHtml(formatDateRangeTR(pkg.start, pkg.end))} aralığında ${pkg.days.length} günlük program.</p>
           </div>
@@ -1266,7 +1298,7 @@
         ${dayButtons}
         <div class="package-day-panel">
           <div class="package-day-title">
-            <div><strong>${escapeHtml(formatDateValueTR(activeDay))} • ${escapeHtml(dayNameTR(activeDay))}</strong><div class="mini">Bu gün için ders ders hedef ve tamamlanma durumu</div></div>
+            <div><strong>${escapeHtml(formatDateValueTR(activeDay))} • ${escapeHtml(dayNameTR(activeDay))}</strong><div class="mini">${escapeHtml(detailNote)}</div></div>
             <span class="task-status-pill ${dayProgress.status}">${escapeHtml(dayProgress.label)}</span>
           </div>
           <div class="package-day-summary">
@@ -1343,12 +1375,20 @@
     }
 
     function renderOldAssignmentsView(list){
-      const allOldDays = collectOldAssignmentDays(list);
+      const allPastPackages = buildPastAssignmentPackages(list);
       const rawStart = state.oldTaskStart || '';
       const rawEnd = state.oldTaskEnd || '';
       const filterStart = rawStart && rawEnd && rawStart > rawEnd ? rawEnd : rawStart;
       const filterEnd = rawStart && rawEnd && rawStart > rawEnd ? rawStart : rawEnd;
-      const oldDays = allOldDays.filter(entry=>(!filterStart || entry.day >= filterStart) && (!filterEnd || entry.day <= filterEnd));
+      const pastPackages = allPastPackages.filter(pkg=>
+        (!filterStart || (pkg.end || pkg.start || '') >= filterStart) &&
+        (!filterEnd || (pkg.start || pkg.end || '') <= filterEnd)
+      );
+
+      if(state.selectedPastTaskPackage && !pastPackages.some(pkg=>pkg.id === state.selectedPastTaskPackage)){
+        state.selectedPastTaskPackage = '';
+      }
+
       const filterHtml = `
         <div class="old-task-filter">
           <div>
@@ -1363,34 +1403,50 @@
             <button class="btn btn-light" type="button" onclick="clearOldTaskDateFilter()">Filtreyi Temizle</button>
           </div>
         </div>
-        <p class="old-task-count">${oldDays.length}/${allOldDays.length} geçmiş görev gösteriliyor.</p>`;
+        <p class="old-task-count">${pastPackages.length}/${allPastPackages.length} geçmiş paket gösteriliyor.</p>`;
 
       return `
         <div class="section-head">
-          <div><h3>Geçmiş Görevlendirmeler</h3><p>Bu bölüm ayrı görünüm olarak açılır. Tarih seçerek eski görevleri süzebilir, sonra haftalık görevlendirmelere geri dönebilirsin.</p></div>
+          <div><h3>Geçmiş Görevlendirmeler</h3><p>Bu bölümde yalnızca süresi tamamen bitmiş paketler görünür. İstediğin paketi açıp kapatarak neyi yapıp neyi eksik bıraktığını kontrol edebilirsin.</p></div>
         </div>
         <div class="task-view-actions">
           <button class="btn btn-primary" type="button" onclick="showCurrentAssignments()">← Haftalık Görevlendirmelere Dön</button>
         </div>
         <div class="history-intro">
-          <strong>Geçmiş görev ekranı</strong>
-          <p>Burada yalnızca tarihi geçmiş görevler listelenir; aktif görev ekranı bu listeyle kalabalıklaşmaz.</p>
+          <strong>Geçmiş paket kontrol ekranı</strong>
+          <p>Aktif görevler burada kalabalıklaşmaz; sadece tarihi tamamen geçmiş paketlerin özeti ve ders ders kontrol listesi gösterilir.</p>
         </div>
         ${filterHtml}
-        ${oldDays.length ? oldDays.map(entry=>{
-          const a = entry.assignment;
-          const lines = entry.items.map(item=>taskItemHtml(entry.day,item)).join('');
-          return `<article class="task-card">
-            <div class="task-top">
-              <div>
-                <p class="task-title">${formatDateTR(parseDateKey(entry.day))} • ${escapeHtml(a.title || a.baslik || 'Çalışma Programı')}</p>
-                <p class="task-sub">${escapeHtml(dayNameTR(entry.day))} • ${escapeHtml(targetLabel(a))}</p>
-              </div>
-              <span class="pill orange">Geçmiş Görev</span>
-            </div>
-            ${lines || '<div class="empty">Bu geçmiş görevde içerik bulunmuyor.</div>'}
-          </article>`;
-        }).join('') : '<div class="empty">Seçilen tarih aralığında geçmiş görev bulunmuyor.</div>'}`;
+        ${pastPackages.length ? pastAssignmentPackagesHtml(pastPackages) : '<div class="empty">Seçilen tarih aralığında geçmiş paket bulunmuyor.</div>'}`;
+    }
+
+    function pastAssignmentPackagesHtml(packages){
+      const openPackage = packages.find(pkg=>pkg.id === state.selectedPastTaskPackage) || null;
+      const packageCards = `<div class="assignment-package-grid">${packages.map((pkg,idx)=>{
+        const progress = packageProgress(pkg);
+        const remaining = Math.max(progress.target - progress.done, 0);
+        const pct = progress.target ? Math.min(100, Math.round(progress.done / progress.target * 100)) : 0;
+        const firstDay = pkg.days[0] || pkg.start || '';
+        const isOpen = openPackage && openPackage.id === pkg.id;
+        const summaryText = remaining ? `${remaining} soru eksik kaldı` : 'Tamamı yapılmış';
+        return `<button type="button" class="assignment-package-card past-package ${isOpen?'open':''}" onclick="setPastAssignmentPackage(${jsArg(pkg.id)}, ${jsArg(firstDay)})" aria-expanded="${isOpen?'true':'false'}">
+          <div class="package-card-top"><span class="package-index">Geçmiş Paket ${idx + 1}</span><span class="package-state-pill passive">Süresi Bitti</span></div>
+          <strong>${escapeHtml(packageTargetLabel(pkg))}</strong>
+          <div class="package-date-line">${escapeHtml(formatDateRangeTR(pkg.start, pkg.end))} • ${pkg.days.length} gün</div>
+          <div class="assignment-mini-progress"><span style="width:${pct}%"></span></div>
+          <div class="package-card-bottom"><span class="assignment-progress-text">${progress.done}/${progress.target} soru • ${escapeHtml(summaryText)}</span><span class="package-open-hint">${isOpen?'Kapat':'Kontrol et'}</span></div>
+        </button>`;
+      }).join('')}</div>`;
+
+      const detail = openPackage ? assignmentPackageDetailHtml(openPackage, {
+        dayMapName:'selectedPastTaskPackageDay',
+        daySetter:'setPastAssignmentPackageDay',
+        badgeText:'Geçmiş paket',
+        detailNote:'Bu gün geçmişte tamamlanması gereken ders hedefleri ve gerçekleşen çalışma durumu',
+        detailId:'pastAssignmentPackage'
+      }) : '<div class="empty">Kontrol etmek için bir geçmiş pakete dokun.</div>';
+
+      return `<div class="assignment-package-note">Geçmiş paketler sadece kontrol amaçlıdır. Paketi açarak hangi gün hangi dersten hedef, yapılan ve kalan soru bilgilerini görebilirsin.</div>${packageCards}${detail}`;
     }
 
     function taskItemHtml(day,item){
