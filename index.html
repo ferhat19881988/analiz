@@ -1262,7 +1262,7 @@
       }).join('')}</div>`;
 
       const detail = openPackage ? assignmentPackageDetailHtml(openPackage) : '<div class="empty">Detayları görmek için bir görev paketine dokun.</div>';
-      return `<div class="assignment-package-note">Telefon ekranında önce paket özetine bakabilir, sonra gün seçerek hangi dersten kaç soru kaldığını görebilirsin.</div>${packageCards}${detail}`;
+      return `${packageCards}${detail}`;
     }
 
     function assignmentPackageDetailHtml(pkg, options={}){
