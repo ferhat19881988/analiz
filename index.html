@@ -1192,6 +1192,31 @@
       return labels.slice(0,2).join(' + ') || 'Görev Paketi';
     }
 
+    const ASSIGNMENT_LESSON_ORDER = [
+      {rank:1, keys:['turkce']},
+      {rank:2, keys:['matematik']},
+      {rank:3, keys:['fen bilimleri','fen']},
+      {rank:4, keys:['sosyal','inkilap','tc inkilap','t c inkilap']},
+      {rank:5, keys:['ingilizce']},
+      {rank:6, keys:['din kulturu','din']}
+    ];
+
+    function normalizeLessonOrderName(name){
+      return safe(name)
+        .toLocaleLowerCase('tr')
+        .replace(/ı/g,'i')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'')
+        .replace(/[^a-z0-9]+/g,' ')
+        .trim();
+    }
+
+    function assignmentLessonOrderValue(lesson){
+      const normalized = normalizeLessonOrderName(lesson);
+      const rule = ASSIGNMENT_LESSON_ORDER.find(item=>item.keys.some(key=>normalized === key || normalized.includes(key)));
+      return rule ? rule.rank : 999;
+    }
+
     function packageDayLessonTargets(pkg, day){
       const map = {};
       (pkg.assignments || []).forEach(a=>{
@@ -1211,7 +1236,7 @@
         ...row,
         topics:[...row.topics],
         notes:[...row.notes]
-      })).sort((a,b)=>a.lesson.localeCompare(b.lesson,'tr'));
+      })).sort((a,b)=>assignmentLessonOrderValue(a.lesson) - assignmentLessonOrderValue(b.lesson) || a.lesson.localeCompare(b.lesson,'tr'));
     }
 
     function doneForLessonOnDay(day, lesson){
