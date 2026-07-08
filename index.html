@@ -1084,7 +1084,7 @@
       const taskStatus = calculateTaskStatus();
       const html = `
         ${statCard('Bugünkü Soru', sumField(todayRecords,'toplamSoru'), 'Toplam girilen soru')}
-        ${statCard('Bu Hafta', sumField(weekRecords,'toplamSoru'), 'Pazartesi-Pazar')}
+        ${statCard('Bu Hafta', sumField(weekRecords,'toplamSoru'), 'Hafta toplamı')}
         ${statCard('Görev Durumu', `${taskStatus.done}/${taskStatus.total}`, 'Tamamlanan görev')}
         ${statCard('Mesaj', unread, 'Okunmamış öğretmen mesajı')}
       `;
@@ -1110,14 +1110,14 @@
 
       const today = dateKey(new Date());
       const oldCount = buildPastAssignmentPackages(list).length;
-      const packages = buildAssignmentPackages(list, day=>normalizeTaskDateKey(day) >= today);
+      const packages = buildAssignmentPackages(list).filter(pkg=>!pkg.end || pkg.end >= today);
       const historyButton = oldCount ? `<button class="btn btn-light" type="button" onclick="showOldAssignments()">Geçmiş Görevleri Gör (${oldCount})</button>` : `<button class="btn btn-light" type="button" disabled>Geçmiş Görev Yok</button>`;
       const head = `
         <div class="section-head">
           <div><h3>Haftalık Görevlendirmeler</h3><p>Görevler paketler halinde gösterilir. Paketi açınca gün gün ne kaldığını ve hangi dersin tamamlandığını net görebilirsin.</p></div>
         </div>
         <div class="task-view-actions">${historyButton}</div>`;
-      if(!packages.length) return head + `<div class="empty">Bugün veya ileri tarihli tanımlı görev paketi görünmüyor.</div>`;
+      if(!packages.length) return head + `<div class="empty">Güncel tanımlı görev paketi görünmüyor.</div>`;
       if(!state.selectedTaskPackage || !packages.some(pkg=>pkg.id === state.selectedTaskPackage)){
         const activePackage = packages.find(pkg=>packageLifeStatus(pkg).key === 'active') || packages[0];
         state.selectedTaskPackage = activePackage?.id || '';
@@ -1397,7 +1397,6 @@
         const p = packageDayProgress(pkg, day);
         return `<button type="button" class="package-day-btn ${day === activeDay ? 'active' : ''}" onclick="${daySetter}(${jsArg(pkg.id)}, ${jsArg(day)})">
           <span>${escapeHtml(formatDateValueTR(day))}</span>
-          <small>${escapeHtml(dayNameTR(day))}</small>
           <em>${escapeHtml(p.done)}/${escapeHtml(p.target)} • ${escapeHtml(p.label)}</em>
         </button>`;
       }).join('')}</div>`;
@@ -1415,7 +1414,7 @@
         ${dayButtons}
         <div class="package-day-panel">
           <div class="package-day-title">
-            <div><strong>${escapeHtml(formatDateValueTR(activeDay))} • ${escapeHtml(dayNameTR(activeDay))}</strong><div class="mini">${escapeHtml(detailNote)}</div></div>
+            <div><strong>${escapeHtml(formatDateValueTR(activeDay))}</strong><div class="mini">${escapeHtml(detailNote)}</div></div>
             <span class="task-status-pill ${dayProgress.status}">${escapeHtml(dayProgress.label)}</span>
           </div>
           <div class="package-day-summary">
@@ -1460,7 +1459,7 @@
         const normalizedDay = normalizeTaskDateKey(day);
         const items = days[day];
         const lines = items.map(item=>taskItemHtml(normalizedDay,item)).join('');
-        return `<div class="task-card"><div class="task-top"><div><p class="task-title">${formatDateTR(parseDateKey(normalizedDay))}</p><p class="task-sub">${escapeHtml(dayNameTR(normalizedDay))}</p></div></div>${lines}</div>`;
+        return `<div class="task-card"><div class="task-top"><div><p class="task-title">${formatDateTR(parseDateKey(normalizedDay))}</p><p class="task-sub">Görev günü</p></div></div>${lines}</div>`;
       }).join('');
       if(!dayHtml) return '';
       return `
@@ -1739,7 +1738,7 @@
       const monthRecords = state.records.filter(r=>inDateRange(recordDateKey(r), dateKey(monthStart), dateKey(new Date())));
       return `
         <div class="section-head">
-          <div><h3>Analizlerim</h3><p>Çalışma özetlerin tarih aralıklarına göre hesaplanır.</p></div>
+          <div><h3>Analizlerim</h3><p>Çalışma özetlerin bugün, bu hafta ve bu ay olarak ayrı ayrı hesaplanır.</p></div>
         </div>
         <div class="grid grid-3">
           ${smallAnalysisBox('Bugün', todayRecords)}
@@ -1747,10 +1746,13 @@
           ${smallAnalysisBox('Bu Ay', monthRecords)}
         </div>
         <div style="height:14px"></div>
-        <h3 style="margin:0 0 12px;font-size:18px">Derslere Göre Bu Hafta</h3>
-        ${courseAnalysisHtml(weekRecords)}
+        <h3 style="margin:0 0 12px;font-size:18px">Derslere Göre Bu Gün</h3>
+        ${courseAnalysisHtml(todayRecords, 'Bugün henüz çalışma kaydı yok.')}
         <div style="height:14px"></div>
-        <h3 style="margin:0 0 12px;font-size:18px">Son Kayıtlarım</h3>
+        <h3 style="margin:0 0 12px;font-size:18px">Derslere Göre Bu Hafta</h3>
+        ${courseAnalysisHtml(weekRecords, 'Bu hafta henüz çalışma kaydı yok.')}
+        <div style="height:14px"></div>
+        <h3 style="margin:0 0 12px;font-size:18px">Son 3 Gün Kayıtlarım</h3>
         ${lastRecordsHtml()}`;
     }
 
@@ -1758,8 +1760,8 @@
       return `<div class="stat-card"><span>${escapeHtml(title)}</span><strong>${sumField(records,'toplamSoru')}</strong><div class="mini">Doğru: ${sumField(records,'dogru')} • Yanlış: ${sumField(records,'yanlis')} • Boş: ${sumField(records,'bos')}</div></div>`;
     }
 
-    function courseAnalysisHtml(records){
-      if(!records.length) return `<div class="empty">Bu hafta henüz çalışma kaydı yok.</div>`;
+    function courseAnalysisHtml(records, emptyText='Bu dönem için çalışma kaydı yok.'){
+      if(!records.length) return `<div class="empty">${escapeHtml(emptyText)}</div>`;
       const by = groupBy(records, r=>r.ders || 'Diğer');
       const entries = Object.entries(by).sort((a,b)=>sumField(b[1],'toplamSoru') - sumField(a[1],'toplamSoru') || a[0].localeCompare(b[0],'tr'));
       const max = Math.max(...entries.map(([,arr])=>sumField(arr,'toplamSoru')),1);
@@ -1781,8 +1783,15 @@
     }
 
     function lastRecordsHtml(){
-      const recent = state.records.slice(0,8);
-      if(!recent.length) return `<div class="empty">Henüz kayıt bulunmuyor.</div>`;
+      const start = new Date();
+      start.setDate(start.getDate() - 2);
+      start.setHours(0,0,0,0);
+      const startKey = dateKey(start);
+      const recent = state.records
+        .filter(r=>recordDateKey(r) >= startKey)
+        .slice()
+        .sort((a,b)=>recordSortValue(b)-recordSortValue(a));
+      if(!recent.length) return `<div class="empty">Son 3 gün içinde kayıt bulunmuyor.</div>`;
       return recent.map(r=>`<div class="task-line"><div><strong>${escapeHtml(r.ders)} • ${escapeHtml(r.anaKonu || '')}</strong><div class="mini">${escapeHtml(formatDateValueTR(recordDateKey(r)))} ${escapeHtml(recordTimeText(r))} • Toplam: ${r.toplamSoru||0} • Doğru: ${r.dogru||0} • Yanlış: ${r.yanlis||0} • Boş: ${r.bos||0}</div></div><span class="pill blue">${escapeHtml(r.altKonu || 'Kayıt')}</span></div>`).join('');
     }
 
