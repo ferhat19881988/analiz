@@ -1221,6 +1221,10 @@
       return Number(item.soruSayisi || item.soru || item.hedefSoru || item.total || item.hedef || 0);
     }
 
+    function creditedTaskDone(done, target){
+      return Math.min(Number(done || 0), Number(target || 0));
+    }
+
     function buildAssignmentPackages(assignments, dayFilter=()=>true){
       const map = new Map();
       (assignments || []).forEach(a=>{
@@ -1341,13 +1345,17 @@
       const targets = packageDayLessonTargets(pkg, day);
       const target = targets.reduce((sum,row)=>sum + Number(row.target || 0), 0);
       const done = targets.reduce((sum,row)=>sum + doneForLessonOnDay(day, row.lesson), 0);
-      const remaining = Math.max(target - done, 0);
-      const pct = target ? Math.min(100, Math.round(done / target * 100)) : 0;
+      const creditedDone = targets.reduce((sum,row)=>{
+        const lessonDone = doneForLessonOnDay(day, row.lesson);
+        return sum + creditedTaskDone(lessonDone, row.target);
+      }, 0);
+      const remaining = Math.max(target - creditedDone, 0);
+      const pct = target ? Math.min(100, Math.round(creditedDone / target * 100)) : 0;
       const today = dateKey(new Date());
-      const complete = target > 0 && done >= target;
+      const complete = target > 0 && creditedDone >= target;
       const status = complete ? 'done' : (day < today ? 'missing' : 'pending');
       const label = complete ? 'Yapıldı' : (day < today ? `Eksik: ${remaining}` : (day > today ? 'Planlı' : 'Devam'));
-      return {targets, target, done, remaining, pct, status, label};
+      return {targets, target, done, creditedDone, remaining, pct, status, label};
     }
 
     function packageProgress(pkg){
@@ -1355,8 +1363,9 @@
         const p = packageDayProgress(pkg, day);
         acc.target += p.target;
         acc.done += p.done;
+        acc.creditedDone += p.creditedDone;
         return acc;
-      }, {target:0, done:0});
+      }, {target:0, done:0, creditedDone:0});
     }
 
     function assignmentPackagesHtml(packages){
@@ -1365,7 +1374,7 @@
       if(openPackage && openPackage.id !== state.selectedTaskPackage) state.selectedTaskPackage = openPackage.id;
       const packageCards = `<div class="assignment-package-grid">${packages.map((pkg,idx)=>{
         const progress = packageProgress(pkg);
-        const pct = progress.target ? Math.min(100, Math.round(progress.done / progress.target * 100)) : 0;
+        const pct = progress.target ? Math.min(100, Math.round(progress.creditedDone / progress.target * 100)) : 0;
         const firstDay = pkg.days.includes(today) ? today : (pkg.days[0] || pkg.start || today);
         const isOpen = openPackage && openPackage.id === pkg.id;
         const life = packageLifeStatus(pkg);
@@ -1374,7 +1383,7 @@
           <strong>${escapeHtml(packageTargetLabel(pkg))}</strong>
           <div class="package-date-line">${escapeHtml(formatDateRangeTR(pkg.start, pkg.end))} • ${pkg.days.length} gün</div>
           <div class="assignment-mini-progress"><span style="width:${pct}%"></span></div>
-          <div class="package-card-bottom"><span class="assignment-progress-text">${progress.done}/${progress.target} soru tamamlandı</span><span class="package-open-hint">${isOpen?'Açık paket':'Detayı aç'}</span></div>
+          <div class="package-card-bottom"><span class="assignment-progress-text">${progress.done} soru yapıldı • ${progress.creditedDone}/${progress.target} tamamlanma</span><span class="package-open-hint">${isOpen?'Açık paket':'Detayı aç'}</span></div>
         </button>`;
       }).join('')}</div>`;
 
@@ -1392,7 +1401,7 @@
       const activeDay = selectedDay && pkg.days.includes(selectedDay) ? selectedDay : (pkg.days.includes(today) ? today : pkg.days[0]);
       state[stateDayMapName] = {...(state[stateDayMapName] || {}), [pkg.id]: activeDay};
       const totalProgress = packageProgress(pkg);
-      const totalPct = totalProgress.target ? Math.min(100, Math.round(totalProgress.done / totalProgress.target * 100)) : 0;
+      const totalPct = totalProgress.target ? Math.min(100, Math.round(totalProgress.creditedDone / totalProgress.target * 100)) : 0;
       const dayButtons = `<div class="package-day-tabs">${pkg.days.map(day=>{
         const p = packageDayProgress(pkg, day);
         return `<button type="button" class="package-day-btn ${day === activeDay ? 'active' : ''}" onclick="${daySetter}(${jsArg(pkg.id)}, ${jsArg(day)})">
@@ -1409,7 +1418,7 @@
             <h4>${escapeHtml(packageTargetLabel(pkg))}</h4>
             <p>${escapeHtml(formatDateRangeTR(pkg.start, pkg.end))} aralığında ${pkg.days.length} günlük program.</p>
           </div>
-          <span class="pill blue">${totalProgress.done}/${totalProgress.target} soru • %${totalPct}</span>
+          <span class="pill blue">${totalProgress.done} yaptı • ${totalProgress.creditedDone}/${totalProgress.target} tamamlanma • %${totalPct}</span>
         </div>
         ${dayButtons}
         <div class="package-day-panel">
@@ -1540,8 +1549,8 @@
       const openPackage = packages.find(pkg=>pkg.id === state.selectedPastTaskPackage) || null;
       const packageCards = `<div class="assignment-package-grid">${packages.map((pkg,idx)=>{
         const progress = packageProgress(pkg);
-        const remaining = Math.max(progress.target - progress.done, 0);
-        const pct = progress.target ? Math.min(100, Math.round(progress.done / progress.target * 100)) : 0;
+        const remaining = Math.max(progress.target - progress.creditedDone, 0);
+        const pct = progress.target ? Math.min(100, Math.round(progress.creditedDone / progress.target * 100)) : 0;
         const firstDay = pkg.days[0] || pkg.start || '';
         const isOpen = openPackage && openPackage.id === pkg.id;
         const summaryText = remaining ? `${remaining} soru eksik kaldı` : 'Tamamı yapılmış';
@@ -1550,7 +1559,7 @@
           <strong>${escapeHtml(packageTargetLabel(pkg))}</strong>
           <div class="package-date-line">${escapeHtml(formatDateRangeTR(pkg.start, pkg.end))} • ${pkg.days.length} gün</div>
           <div class="assignment-mini-progress"><span style="width:${pct}%"></span></div>
-          <div class="package-card-bottom"><span class="assignment-progress-text">${progress.done}/${progress.target} soru • ${escapeHtml(summaryText)}</span><span class="package-open-hint">${isOpen?'Kapat':'Kontrol et'}</span></div>
+          <div class="package-card-bottom"><span class="assignment-progress-text">${progress.done} soru yapıldı • ${progress.creditedDone}/${progress.target} tamamlanma • ${escapeHtml(summaryText)}</span><span class="package-open-hint">${isOpen?'Kapat':'Kontrol et'}</span></div>
         </button>`;
       }).join('')}</div>`;
 
@@ -1748,9 +1757,6 @@
         <div style="height:14px"></div>
         <h3 style="margin:0 0 12px;font-size:18px">Derslere Göre Bu Gün</h3>
         ${courseAnalysisHtml(todayRecords, 'Bugün henüz çalışma kaydı yok.')}
-        <div style="height:14px"></div>
-        <h3 style="margin:0 0 12px;font-size:18px">Derslere Göre Bu Hafta</h3>
-        ${courseAnalysisHtml(weekRecords, 'Bu hafta henüz çalışma kaydı yok.')}
         <div style="height:14px"></div>
         <h3 style="margin:0 0 12px;font-size:18px">Son 3 Gün Kayıtlarım</h3>
         ${lastRecordsHtml()}`;
