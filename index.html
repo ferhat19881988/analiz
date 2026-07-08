@@ -118,6 +118,98 @@
     .message-title{font-weight:800;margin:0 0 6px}
     .message-text{line-height:1.55;color:#334155;margin:0 0 12px;white-space:pre-wrap}
     .analysis-list{display:grid;gap:12px}
+
+
+    /* Analizlerim: telefonda daha okunur haftalık ders kartları */
+    .week-course-board{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));
+      gap:10px;
+      width:100%;
+    }
+    .week-course-card{
+      border:1px solid var(--line);
+      border-radius:20px;
+      background:linear-gradient(180deg,#fff,#fbfdff);
+      padding:14px;
+      box-shadow:0 10px 24px rgba(15,23,42,.055);
+      min-width:0;
+    }
+    .week-course-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .week-course-head strong{
+      display:block;
+      color:#0f172a;
+      font-size:15px;
+      font-weight:800;
+      line-height:1.2;
+      overflow-wrap:anywhere;
+    }
+    .week-course-score{
+      min-width:64px;
+      border-radius:16px;
+      background:#eef4ff;
+      border:1px solid #dbeafe;
+      color:#1d4ed8;
+      padding:8px 9px;
+      text-align:center;
+      font-weight:800;
+      line-height:1;
+      font-variant-numeric:tabular-nums;
+    }
+    .week-course-score small{
+      display:block;
+      margin-top:4px;
+      color:#64748b;
+      font-size:10px;
+      font-weight:800;
+      line-height:1.1;
+    }
+    .week-course-stats{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:7px;
+      margin-top:10px;
+    }
+    .week-course-stats span{
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:#fff;
+      padding:8px 6px;
+      text-align:center;
+      color:#334155;
+      font-size:10px;
+      font-weight:800;
+      line-height:1.15;
+    }
+    .week-course-stats b{
+      display:block;
+      color:#0f172a;
+      font-size:15px;
+      line-height:1.1;
+      margin-bottom:2px;
+      font-variant-numeric:tabular-nums;
+    }
+    .week-course-topic{
+      margin-top:9px;
+      color:#64748b;
+      font-size:12px;
+      font-weight:700;
+      line-height:1.35;
+      overflow-wrap:anywhere;
+    }
+    @media(max-width:560px){
+      .week-course-board{grid-template-columns:1fr;gap:9px}
+      .week-course-card{border-radius:18px;padding:12px}
+      .week-course-head{align-items:center}
+      .week-course-score{min-width:58px;padding:7px 8px}
+      .week-course-stats{gap:6px}
+    }
     .course-line{padding:14px;border:1px solid var(--line);border-radius:18px;background:#fff}
     .course-line-top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px}
     .course-line-top strong{font-size:15px}
@@ -937,7 +1029,7 @@
 
       recordsRef.on('value', snap=>{
         const val = snap.val() || {};
-        state.records = Object.entries(val).map(([id,v])=>({id,...v})).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+        state.records = Object.entries(val).map(([id,v])=>({id,...v})).sort((a,b)=>recordSortValue(b)-recordSortValue(a));
         renderAll();
       });
       assignRef.on('value', snap=>{
@@ -986,13 +1078,13 @@
     function renderSummaryCards(){
       const today = dateKey(new Date());
       const week = getWeekRange(new Date());
-      const todayRecords = state.records.filter(r=>r.dateKey === today);
-      const weekRecords = state.records.filter(r=>inDateRange(r.dateKey, dateKey(week.start), dateKey(week.end)));
+      const todayRecords = state.records.filter(r=>recordDateKey(r) === today);
+      const weekRecords = state.records.filter(r=>inDateRange(recordDateKey(r), dateKey(week.start), dateKey(week.end)));
       const unread = state.messages.filter(m=>!m.okundu).length;
       const taskStatus = calculateTaskStatus();
       const html = `
         ${statCard('Bugünkü Soru', sumField(todayRecords,'toplamSoru'), 'Toplam girilen soru')}
-        ${statCard('7 Gün', sumField(weekRecords,'toplamSoru'), 'Bugünden başlayan')}
+        ${statCard('Bu Hafta', sumField(weekRecords,'toplamSoru'), 'Pazartesi-Pazar')}
         ${statCard('Görev Durumu', `${taskStatus.done}/${taskStatus.total}`, 'Tamamlanan görev')}
         ${statCard('Mesaj', unread, 'Okunmamış öğretmen mesajı')}
       `;
@@ -1241,7 +1333,7 @@
 
     function doneForLessonOnDay(day, lesson){
       return state.records
-        .filter(r=>normalizeTaskDateKey(r.dateKey) === day && safe(r.ders) === safe(lesson))
+        .filter(r=>recordDateKey(r) === day && safe(r.ders) === safe(lesson))
         .reduce((sum,r)=>sum + Number(r.toplamSoru || 0), 0);
     }
 
@@ -1479,7 +1571,7 @@
       const today = dateKey(new Date());
       const ders = item.ders || item.course || '';
       const hedef = Number(item.soruSayisi || item.soru || item.hedefSoru || item.total || 0);
-      const done = state.records.filter(r=>normalizeTaskDateKey(r.dateKey) === taskDay && safe(r.ders) === safe(ders)).reduce((a,r)=>a+Number(r.toplamSoru||0),0);
+      const done = state.records.filter(r=>recordDateKey(r) === taskDay && safe(r.ders) === safe(ders)).reduce((a,r)=>a+Number(r.toplamSoru||0),0);
       const remaining = Math.max(hedef - done, 0);
       const pct = hedef ? Math.min(100, Math.round(done/hedef*100)) : 0;
       const ok = hedef && done >= hedef;
@@ -1595,11 +1687,17 @@
             sinif: state.student.sinif || '',
             grup: state.student.grup || '',
             ...item,
-            dateKey: dateKey(now),
+            dateKey: appDateISO(now),
+            localDate: appDateISO(now),
             tarih: formatDateTR(now),
-            saat: now.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}),
+            saat: appTimeText(now),
+            girisSaati: appTimeText(now),
+            entryTime: appTimeText(now),
+            localTime: appTimeText(now),
+            timeZone: APP_TIME_ZONE,
             timestamp: now.getTime(),
             createdAt: now.toISOString(),
+            createdAtMs: now.getTime(),
             source: 'student-web'
           };
         });
@@ -1636,9 +1734,9 @@
       const today = dateKey(new Date());
       const week = getWeekRange(new Date());
       const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
-      const todayRecords = state.records.filter(r=>r.dateKey === today);
-      const weekRecords = state.records.filter(r=>inDateRange(r.dateKey, dateKey(week.start), dateKey(week.end)));
-      const monthRecords = state.records.filter(r=>inDateRange(r.dateKey, dateKey(monthStart), dateKey(new Date())));
+      const todayRecords = state.records.filter(r=>recordDateKey(r) === today);
+      const weekRecords = state.records.filter(r=>inDateRange(recordDateKey(r), dateKey(week.start), dateKey(week.end)));
+      const monthRecords = state.records.filter(r=>inDateRange(recordDateKey(r), dateKey(monthStart), dateKey(new Date())));
       return `
         <div class="section-head">
           <div><h3>Analizlerim</h3><p>Çalışma özetlerin tarih aralıklarına göre hesaplanır.</p></div>
@@ -1663,18 +1761,29 @@
     function courseAnalysisHtml(records){
       if(!records.length) return `<div class="empty">Bu hafta henüz çalışma kaydı yok.</div>`;
       const by = groupBy(records, r=>r.ders || 'Diğer');
-      const max = Math.max(...Object.values(by).map(arr=>sumField(arr,'toplamSoru')),1);
-      return `<div class="analysis-list">${Object.entries(by).map(([course,arr])=>{
+      const entries = Object.entries(by).sort((a,b)=>sumField(b[1],'toplamSoru') - sumField(a[1],'toplamSoru') || a[0].localeCompare(b[0],'tr'));
+      const max = Math.max(...entries.map(([,arr])=>sumField(arr,'toplamSoru')),1);
+      return `<div class="week-course-board">${entries.map(([course,arr])=>{
         const total = sumField(arr,'toplamSoru');
-        const pct = Math.round(total/max*100);
-        return `<div class="course-line"><div class="course-line-top"><strong>${escapeHtml(course)}</strong><span>${total} soru</span></div><div class="mini">Doğru: ${sumField(arr,'dogru')} • Yanlış: ${sumField(arr,'yanlis')} • Boş: ${sumField(arr,'bos')}</div><div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div></div>`;
+        const correct = sumField(arr,'dogru');
+        const wrong = sumField(arr,'yanlis');
+        const blank = sumField(arr,'bos');
+        const accuracy = total ? Math.round(correct / total * 100) : 0;
+        const pct = Math.round(total / max * 100);
+        const topics = [...new Set(arr.map(r=>[r.anaKonu,r.altKonu].filter(Boolean).join(' / ')).filter(Boolean))].slice(0,2).join(' • ');
+        return `<article class="week-course-card">
+          <div class="week-course-head"><strong>${escapeHtml(course)}</strong><div class="week-course-score">${total}<small>soru</small></div></div>
+          <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
+          <div class="week-course-stats"><span><b>${correct}</b>Doğru</span><span><b>${wrong}</b>Yanlış</span><span><b>${blank}</b>Boş</span></div>
+          <div class="week-course-topic">Başarı: %${accuracy}${topics ? ` • ${escapeHtml(topics)}` : ''}</div>
+        </article>`;
       }).join('')}</div>`;
     }
 
     function lastRecordsHtml(){
       const recent = state.records.slice(0,8);
       if(!recent.length) return `<div class="empty">Henüz kayıt bulunmuyor.</div>`;
-      return recent.map(r=>`<div class="task-line"><div><strong>${escapeHtml(r.ders)} • ${escapeHtml(r.anaKonu || '')}</strong><div class="mini">${escapeHtml(formatDateValueTR(r.tarih || r.dateKey))} ${escapeHtml(r.saat || '')} • Toplam: ${r.toplamSoru||0} • Doğru: ${r.dogru||0} • Yanlış: ${r.yanlis||0} • Boş: ${r.bos||0}</div></div><span class="pill blue">${escapeHtml(r.altKonu || 'Kayıt')}</span></div>`).join('');
+      return recent.map(r=>`<div class="task-line"><div><strong>${escapeHtml(r.ders)} • ${escapeHtml(r.anaKonu || '')}</strong><div class="mini">${escapeHtml(formatDateValueTR(recordDateKey(r)))} ${escapeHtml(recordTimeText(r))} • Toplam: ${r.toplamSoru||0} • Doğru: ${r.dogru||0} • Yanlış: ${r.yanlis||0} • Boş: ${r.bos||0}</div></div><span class="pill blue">${escapeHtml(r.altKonu || 'Kayıt')}</span></div>`).join('');
     }
 
     function renderMessages(){
@@ -1748,7 +1857,7 @@
             if(!hedef) return;
             total++;
             const ders = item.ders || item.course || '';
-            const got = state.records.filter(r=>normalizeTaskDateKey(r.dateKey) === normalizedDay && safe(r.ders) === safe(ders)).reduce((acc,r)=>acc+Number(r.toplamSoru||0),0);
+            const got = state.records.filter(r=>recordDateKey(r) === normalizedDay && safe(r.ders) === safe(ders)).reduce((acc,r)=>acc+Number(r.toplamSoru||0),0);
             if(got >= hedef) done++;
           });
         });
@@ -1786,8 +1895,42 @@
       })).filter(k=>k.ad);
     }
 
+    const APP_TIME_ZONE = 'Europe/Istanbul';
+
+    function pad2(n){
+      return String(n).padStart(2,'0');
+    }
+
+    function appDateParts(date=new Date()){
+      try{
+        const parts = new Intl.DateTimeFormat('en-CA',{
+          timeZone: APP_TIME_ZONE,
+          year:'numeric', month:'2-digit', day:'2-digit',
+          hour:'2-digit', minute:'2-digit', hourCycle:'h23'
+        }).formatToParts(date);
+        const get = type => parts.find(p=>p.type === type)?.value || '';
+        return {year:get('year'), month:get('month'), day:get('day'), hour:get('hour'), minute:get('minute')};
+      }catch(err){
+        return {year:String(date.getFullYear()), month:pad2(date.getMonth()+1), day:pad2(date.getDate()), hour:pad2(date.getHours()), minute:pad2(date.getMinutes())};
+      }
+    }
+
+    function appDateISO(date=new Date()){
+      const p = appDateParts(date);
+      return `${p.year}-${p.month}-${p.day}`;
+    }
+
+    function appTimeText(date=new Date()){
+      const p = appDateParts(date);
+      return `${p.hour}:${p.minute}`;
+    }
+
     function getWeekRange(d){
-      const start = new Date(d);
+      const base = parseDateKey(dateKey(d));
+      base.setHours(0,0,0,0);
+      const offset = (base.getDay() + 6) % 7;
+      const start = new Date(base);
+      start.setDate(base.getDate() - offset);
       start.setHours(0,0,0,0);
       const end = new Date(start);
       end.setDate(start.getDate()+6);
@@ -1796,11 +1939,7 @@
     }
 
     function dateKey(d){
-      const x = new Date(d);
-      const y = x.getFullYear();
-      const m = String(x.getMonth()+1).padStart(2,'0');
-      const day = String(x.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
+      return appDateISO(d instanceof Date ? d : new Date(d));
     }
 
     function normalizeTaskDateKey(value){
@@ -1828,10 +1967,8 @@
     function formatDateTR(d){
       const parsed = d instanceof Date ? d : new Date(d);
       if(!d || isNaN(parsed.getTime())) return '';
-      const day = String(parsed.getDate()).padStart(2,'0');
-      const month = String(parsed.getMonth()+1).padStart(2,'0');
-      const year = parsed.getFullYear();
-      return `${day}.${month}.${year}`;
+      const p = appDateParts(parsed);
+      return `${p.day}.${p.month}.${p.year}`;
     }
 
     function formatDateValueTR(value){
@@ -1847,6 +1984,100 @@
       if(!endText || startText === endText) return startText;
       if(!startText) return endText;
       return `${startText} - ${endText}`;
+    }
+
+
+
+    function dateFromAbsoluteValue(value){
+      if(value === null || value === undefined || value === '') return null;
+      if(value instanceof Date) return isNaN(value.getTime()) ? null : value;
+      if(typeof value === 'number' && Number.isFinite(value)){
+        const ms = value > 9999999999 ? value : value * 1000;
+        const d = new Date(ms);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      const raw = String(value || '').trim();
+      if(!raw) return null;
+      if(/^\d{10,13}$/.test(raw)){
+        const n = Number(raw);
+        const d = new Date(raw.length === 10 ? n * 1000 : n);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      if(/^\d{4}-\d{2}-\d{2}T/.test(raw)){
+        const d = new Date(raw.replace(/([+-]\d{2})(\d{2})$/,'$1:$2'));
+        return isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    }
+
+    function minutesFromTimeText(value){
+      const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+      return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+    }
+
+    function localTimeFromTextValue(value){
+      const s = String(value || '').trim();
+      if(!s) return '';
+      const m = s.match(/\b(\d{1,2}):(\d{2})\b/);
+      return m ? `${pad2(Number(m[1]))}:${m[2]}` : '';
+    }
+
+    function recordDateKey(record){
+      const raw = record || {};
+      const direct = normalizeTaskDateKey(raw.dateKey || raw.localDate || raw.date || raw.gun || raw.tarihSaat || raw.tarih || '');
+      if(direct && /^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+      const absoluteCandidates = [raw.timestamp, raw.createdAt, raw.created_at, raw.serverTime, raw.createdAtMs];
+      for(const val of absoluteCandidates){
+        const d = dateFromAbsoluteValue(val);
+        if(d) return appDateISO(d);
+      }
+      return direct || '';
+    }
+
+    function normalizeRecordDisplayTime(record, time){
+      const cleanTime = localTimeFromTextValue(time);
+      if(!cleanTime) return '';
+      const date = recordDateKey(record);
+      if(date === todayISO()){
+        const nowMin = minutesFromTimeText(appTimeText(new Date()));
+        const recMin = minutesFromTimeText(cleanTime);
+        if(nowMin !== null && recMin !== null && recMin > nowMin + 5){
+          const raw = record || {};
+          const absoluteCandidates = [raw.timestamp, raw.createdAt, raw.created_at, raw.serverTime, raw.createdAtMs];
+          for(const val of absoluteCandidates){
+            const d = dateFromAbsoluteValue(val);
+            if(!d) continue;
+            const fallback = appTimeText(d);
+            const fallbackMin = minutesFromTimeText(fallback);
+            if(fallbackMin !== null && fallbackMin <= nowMin + 5) return fallback;
+          }
+          return `${cleanTime} ⚠`;
+        }
+      }
+      return cleanTime;
+    }
+
+    function recordTimeText(record){
+      const raw = record || {};
+      const direct = [raw.localTime, raw.saat, raw.girisSaati, raw.entryTime, raw.time, raw.tarihSaat, raw.tarih]
+        .map(localTimeFromTextValue).find(Boolean);
+      if(direct) return normalizeRecordDisplayTime(raw, direct);
+      const absoluteCandidates = [raw.timestamp, raw.createdAt, raw.created_at, raw.serverTime, raw.createdAtMs];
+      for(const val of absoluteCandidates){
+        const d = dateFromAbsoluteValue(val);
+        if(d) return normalizeRecordDisplayTime(raw, appTimeText(d));
+      }
+      return '';
+    }
+
+    function recordSortValue(record){
+      const date = recordDateKey(record) || '0000-00-00';
+      const time = recordTimeText(record).replace(/\s*⚠$/, '') || '00:00';
+      return Number(date.replace(/\D/g,'') + time.replace(/\D/g,'')) || 0;
+    }
+
+    function todayISO(){
+      return appDateISO(new Date());
     }
 
     function dayNameTR(key){
