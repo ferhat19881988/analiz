@@ -1824,19 +1824,60 @@
       await getDb().ref(`verianalizi001/ogrenciMesajlari/${state.student.no}/${id}`).update({okundu:true, okunduAt:new Date().toISOString()});
     }
 
+    function normalizeStudentNoList(value){
+      const source = Array.isArray(value)
+        ? value
+        : (value && typeof value === 'object' ? Object.values(value) : []);
+      return [...new Set(source.map(item=>{
+        if(item && typeof item === 'object'){
+          return cleanId(item.no || item.studentNo || item.ogrenciNo || item.id || '');
+        }
+        return cleanId(item);
+      }).filter(Boolean))];
+    }
+
+    function snapshotStudentNos(assignment){
+      const direct = normalizeStudentNoList(assignment?.assignedStudentNos);
+      if(direct.length) return direct;
+      return normalizeStudentNoList(assignment?.assignedStudents);
+    }
+
+    function taskHasRosterSnapshot(assignment){
+      if(!assignment || assignment.hasRosterSnapshot === false) return false;
+      return assignment.hasRosterSnapshot === true ||
+        safe(assignment.rosterMode).toLowerCase() === 'snapshot' ||
+        Boolean(snapshotStudentNos(assignment).length && assignment.rosterCapturedAt);
+    }
+
+    function assignmentTargetsStudent(assignment, student = state.student){
+      if(!assignment || !student) return false;
+      const studentNo = cleanId(student.no);
+
+      if(taskHasRosterSnapshot(assignment)){
+        return snapshotStudentNos(assignment).includes(studentNo);
+      }
+
+      const type = safe(assignment.targetType || assignment.hedefTuru || assignment.target?.type || 'all').toLowerCase();
+      const val = safe(assignment.targetValue || assignment.hedefDegeri || assignment.target?.value || '');
+      const directStudentNos = normalizeStudentNoList(assignment.studentNos);
+      const studentNos = directStudentNos.length
+        ? directStudentNos
+        : normalizeStudentNoList(assignment.ogrenciler);
+
+      return type === 'all' || type === 'genel' || val === 'all' ||
+        (['class','sinif','sınıf'].includes(type) && safe(student.sinif) === val) ||
+        (['group','grup'].includes(type) && safe(student.grup) === val) ||
+        (['student','students','ogrenci','öğrenci'].includes(type) &&
+          (studentNo === cleanId(val) || studentNos.includes(studentNo)));
+    }
+
     function relevantAssignments(){
-      const st = state.student;
-      return state.assignments.filter(a=>{
-        if(a.active === false || a.aktif === false || a.status === 'silindi') return false;
-        const type = safe(a.targetType || a.hedefTuru || a.target?.type || 'all').toLowerCase();
-        const val = safe(a.targetValue || a.hedefDegeri || a.target?.value || '');
-        const studentNos = Array.isArray(a.studentNos) ? a.studentNos.map(cleanId) : Array.isArray(a.ogrenciler) ? a.ogrenciler.map(cleanId) : [];
-        const targetOk = type === 'all' || type === 'genel' || val === 'all' ||
-          (['class','sinif','sınıf'].includes(type) && safe(st.sinif) === val) ||
-          (['group','grup'].includes(type) && safe(st.grup) === val) ||
-          (['student','students','ogrenci','öğrenci'].includes(type) && (safe(st.no) === cleanId(val) || studentNos.includes(cleanId(st.no))));
-        return targetOk;
-      }).sort((a,b)=>firstAssignmentDate(a).localeCompare(firstAssignmentDate(b)));
+      return state.assignments
+        .filter(assignment=>{
+          if(assignment.active === false || assignment.aktif === false || assignment.status === 'silindi') return false;
+          return assignmentTargetsStudent(assignment);
+        })
+        .sort((a,b)=>firstAssignmentDate(a).localeCompare(firstAssignmentDate(b)));
     }
 
     function firstAssignmentDate(a){
@@ -1891,7 +1932,12 @@
       if(['class','sinif','sınıf'].includes(type)) return `Sınıf: ${val}`;
       if(['group','grup'].includes(type)) return `Grup: ${val}`;
       if(['student','students','ogrenci','öğrenci'].includes(type)){
-        const nos = Array.isArray(a.studentNos) ? a.studentNos.map(cleanId) : [];
+        const nos = taskHasRosterSnapshot(a)
+          ? snapshotStudentNos(a)
+          : (() => {
+              const direct = normalizeStudentNoList(a.studentNos);
+              return direct.length ? direct : normalizeStudentNoList(a.ogrenciler);
+            })();
         return nos.length > 1 ? `${nos.length} Öğrenci` : `Öğrenci: ${val || nos[0] || ''}`;
       }
       return 'Görev';
